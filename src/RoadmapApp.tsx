@@ -35,11 +35,15 @@ type RoadmapItem = {
   owner?: string;
   laneId: LaneId;
   stageId: StageId;
-  year: number;           // start year
-  startMonth: number;     // 0-11
-  endMonth: number;       // 0-11 inclusive
-  progress?: number;      // 0-100
-  milestones?: { label: string; month: number }[];
+  // New granular date range (supports cross-year)
+  startYear: number;
+  startMonth: number;  // 0-11
+  startDay: number;    // 1-31
+  endYear: number;
+  endMonth: number;    // 0-11
+  endDay: number;      // 1-31
+  progress?: number;   // 0-100
+  milestones?: { label: string; month: number }[]; // milestones still month-based for simplicity
 };
 
 type Timeline = {
@@ -78,7 +82,29 @@ const DEFAULT_TL: Timeline = { leftTitle: "Tasks", startYear: thisYear, startMon
 function load(): { items: RoadmapItem[]; lanes: LaneMeta[]; stages: StageMeta[]; tl: Timeline } {
   if (typeof window === "undefined") return { items: [], lanes: DEFAULT_LANES, stages: DEFAULT_STAGES, tl: DEFAULT_TL };
   try {
-    const items = JSON.parse(localStorage.getItem(STORAGE_ITEMS) || "[]") as RoadmapItem[];
+    const rawItems = JSON.parse(localStorage.getItem(STORAGE_ITEMS) || "[]") as any[];
+    // Migration: older items had { year, startMonth, endMonth }
+    const items: RoadmapItem[] = rawItems.map(it => {
+      if (it && typeof it === 'object' && !('startYear' in it)) {
+        return {
+          id: it.id,
+          title: it.title,
+          description: it.description,
+          owner: it.owner,
+          laneId: it.laneId,
+            stageId: it.stageId,
+          startYear: it.year,
+          startMonth: it.startMonth ?? 0,
+          startDay: 1,
+          endYear: it.year,
+          endMonth: it.endMonth ?? it.startMonth ?? 0,
+          endDay: 28,
+          progress: it.progress,
+          milestones: it.milestones,
+        } as RoadmapItem;
+      }
+      return it as RoadmapItem;
+    });
     const lanes = JSON.parse(localStorage.getItem(STORAGE_LANES) || "[]") as LaneMeta[];
     const stages = JSON.parse(localStorage.getItem(STORAGE_STAGES) || "[]") as StageMeta[];
     const tl = JSON.parse(localStorage.getItem(STORAGE_TL) || "null") as Timeline | null;
@@ -126,8 +152,8 @@ export default function RoadmapApp() {
 
   const itemsByLane = useMemo(() => {
     const map: Record<string, RoadmapItem[]> = Object.fromEntries(lanes.map(l => [l.id, []]));
-    for (const it of items) (map[it.laneId] ?? (map[it.laneId] = [])).push(it);
-    for (const id of Object.keys(map)) map[id] = [...map[id]].sort((a: RoadmapItem, b: RoadmapItem)=>a.startMonth-b.startMonth);
+  for (const it of items) (map[it.laneId] ?? (map[it.laneId] = [])).push(it);
+  for (const id of Object.keys(map)) map[id] = [...map[id]].sort((a: RoadmapItem, b: RoadmapItem)=> toAbs(a.startYear, a.startMonth) - toAbs(b.startYear, b.startMonth));
     return map;
   }, [items, lanes]);
 
@@ -347,8 +373,8 @@ function QuarterHeader({ tl, cols }: { tl: Timeline; cols: number }) {
 
 /* ---------- Bar (pill) ---------- */
 function BarPill({ item, laneColor, colorClass, onEdit, onDelete, absStart, cols }:{ item: RoadmapItem; laneColor: string; colorClass: string; onEdit: () => void; onDelete: () => void; absStart: number; cols: number; }) {
-  const itemAbsStart = toAbs(item.year, item.startMonth);
-  const itemAbsEnd = toAbs(item.year, item.endMonth);
+  const itemAbsStart = toAbs(item.startYear, item.startMonth);
+  const itemAbsEnd = toAbs(item.endYear, item.endMonth);
   const first = 0, last = cols - 1;
   if (itemAbsEnd < absStart || itemAbsStart > absStart + last) return null;
   const start = Math.max(first, itemAbsStart - absStart);
@@ -367,7 +393,8 @@ function BarPill({ item, laneColor, colorClass, onEdit, onDelete, absStart, cols
         </div>
       </div>
       {item.milestones?.map((ms, i) => {
-        const msAbs = toAbs(item.year, ms.month);
+        // Milestones are month-based; anchor them to the item's startYear for absolute positioning
+        const msAbs = toAbs(item.startYear, ms.month);
         if (msAbs < absStart + start || msAbs > absStart + end) return null;
         const pct = (msAbs - (absStart + start)) / Math.max(1, end - start);
         return (
@@ -426,25 +453,41 @@ function ItemForm({ onSubmit, onDelete, initial, lanes, stages, tl }:{ onSubmit:
   const [owner, setOwner] = useState(initial?.owner || "");
   const [laneId, setLaneId] = useState<LaneId>(initial?.laneId || lanes[0].id);
   const [stageId, setStageId] = useState<StageId>(initial?.stageId || stages[0].id);
-  const [year, setYear] = useState<number>(initial?.year ?? tl.startYear);
-  const [startMonth, setStartMonth] = useState<number>(initial?.startMonth ?? tl.startMonth);
-  const [endMonth, setEndMonth] = useState<number>(initial?.endMonth ?? Math.min(tl.startMonth + 2, 11));
+  const defaultStartYear = initial?.startYear ?? tl.startYear;
+  const defaultStartMonth = initial?.startMonth ?? tl.startMonth;
+  const defaultStartDay = initial?.startDay ?? 1;
+  const defaultEndYear = initial?.endYear ?? tl.startYear;
+  const defaultEndMonth = initial?.endMonth ?? Math.min(tl.startMonth + 2, 11);
+  const defaultEndDay = initial?.endDay ?? 28;
+  const toISO = (y:number,m:number,d:number)=> `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+  const [startDate, setStartDate] = useState<string>(toISO(defaultStartYear, defaultStartMonth, defaultStartDay));
+  const [endDate, setEndDate] = useState<string>(toISO(defaultEndYear, defaultEndMonth, defaultEndDay));
   const [milestones, setMilestones] = useState<{ label: string; month: number }[]>(initial?.milestones || []);
   const [progress, setProgress] = useState<number>(initial?.progress ?? 0);
   return (
     <form
-      onSubmit={(e) => {
-        e.preventDefault();
+      onSubmit={(evt) => {
+        evt.preventDefault();
+        const parse = (iso:string)=> { const [y,m,d] = iso.split('-').map(Number); return { y, m: m-1, d }; };
+        const s = parse(startDate);
+        const endParsed = parse(endDate);
+        // normalize order
+        let sAbs = toAbs(s.y, s.m), eAbs = toAbs(endParsed.y, endParsed.m);
+        let start = s, end = endParsed;
+        if (sAbs > eAbs || (sAbs===eAbs && s.d > endParsed.d)) { start = endParsed; end = s; }
         const payload: RoadmapItem = {
           id: initial?.id || uuid(),
           title: title.trim(),
           description: description.trim() || undefined,
-            owner: owner.trim() || undefined,
+          owner: owner.trim() || undefined,
           laneId,
           stageId,
-          year,
-          startMonth: Math.min(startMonth, endMonth),
-          endMonth: Math.max(startMonth, endMonth),
+          startYear: start.y,
+          startMonth: start.m,
+          startDay: clamp(start.d,1,31),
+          endYear: end.y,
+          endMonth: end.m,
+          endDay: clamp(end.d,1,31),
           progress: Number.isFinite(progress) ? clamp(progress, 0, 100) : undefined,
           milestones: milestones.filter(m => m.label.trim()).map(m => ({ label: m.label.trim(), month: clamp(m.month, 0, 11) })),
         };
@@ -470,15 +513,14 @@ function ItemForm({ onSubmit, onDelete, initial, lanes, stages, tl }:{ onSubmit:
           </Select>
         </div>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-        <div className="space-y-2"><Label>Year</Label><Input type="number" value={year} onChange={(e: React.ChangeEvent<HTMLInputElement>)=>setYear(Number(e.target.value))} /></div>
-        <div className="space-y-2"><Label>Start Month</Label><Select value={String(startMonth)} onValueChange={(v: string)=>setStartMonth(Number(v))}><SelectTrigger><SelectValue placeholder="Start" /></SelectTrigger><SelectContent>{MONTHS.map((m,i)=>(<SelectItem key={m.label} value={String(i)}>{m.label}</SelectItem>))}</SelectContent></Select></div>
-        <div className="space-y-2"><Label>End Month</Label><Select value={String(endMonth)} onValueChange={(v: string)=>setEndMonth(Number(v))}><SelectTrigger><SelectValue placeholder="End" /></SelectTrigger><SelectContent>{MONTHS.map((m,i)=>(<SelectItem key={m.label} value={String(i)}>{m.label}</SelectItem>))}</SelectContent></Select></div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="space-y-2"><Label>Start Date</Label><Input type="date" value={startDate} onChange={(e: React.ChangeEvent<HTMLInputElement>)=>setStartDate(e.target.value)} /></div>
+        <div className="space-y-2"><Label>End Date</Label><Input type="date" value={endDate} onChange={(e: React.ChangeEvent<HTMLInputElement>)=>setEndDate(e.target.value)} /></div>
         <div className="space-y-2"><Label>Progress (%)</Label><Input type="number" min={0} max={100} value={progress} onChange={(e: React.ChangeEvent<HTMLInputElement>)=>setProgress(Number(e.target.value))} /></div>
       </div>
       <div className="space-y-2"><Label>Milestones</Label><MiniMilestonesEditor value={milestones} onChange={setMilestones} /></div>
       <div className="flex items-center justify-between">
-        <div className="text-xs text-slate-500 inline-flex items-center gap-1"><Calendar className="h-3.5 w-3.5" /> {quarterName(startMonth)} • {monthName(startMonth)}–{monthName(endMonth)} {year}</div>
+  <div className="text-xs text-slate-500 inline-flex items-center gap-1"><Calendar className="h-3.5 w-3.5" /> {startDate} – {endDate}</div>
         <DialogFooter className="gap-2">{onDelete && (<Button type="button" variant="ghost" onClick={onDelete} className="text-red-600">Delete</Button>)}<Button type="submit">Save</Button></DialogFooter>
       </div>
     </form>
