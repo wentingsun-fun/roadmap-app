@@ -253,9 +253,10 @@ export default function RoadmapApp() {
           <div className="grid grid-cols-[200px_1fr]">
             {/* Left: editable header title + lanes */}
             <div className="border-t">
-              <div className="flex items-center px-4 py-3 border-b gap-2">
-                <Label className="text-xs text-slate-600">Left Header Title</Label>
-                <Input className="h-8" value={tl.leftTitle} onChange={(e: React.ChangeEvent<HTMLInputElement>)=>setTimeline({ leftTitle: e.target.value })} />
+              {/* Replaced editable Left Header Title input with static title display */}
+              {/* Renamed to Title */}
+              <div className="px-4 py-3 border-b">
+                <div className="text-xs font-semibold tracking-wide text-slate-600 truncate">{tl.leftTitle}</div>
               </div>
               {lanes.map((lane, i) => (
                 <div key={lane.id} className={`flex items-center h-24 px-4 text-sm font-medium ${i !== 0 ? "border-t" : ""}`}>
@@ -393,30 +394,26 @@ function TimelineControls({ tl, onChange }: { tl: Timeline; onChange: (patch: Pa
     if (a <= b) onChange({ startYear: sy, startMonth: sm, endYear: ey, endMonth: em });
     else onChange({ startYear: ey, startMonth: em, endYear: sy, endMonth: sm });
   }, [sy, sm, ey, em]);
+  const startValue = `${sy}-${String(sm + 1).padStart(2,'0')}`;
+  const endValue = `${ey}-${String(em + 1).padStart(2,'0')}`;
+  const onStartChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const [y,m] = e.target.value.split('-').map(Number); if(!isNaN(y) && !isNaN(m)) { setSy(y); setSm(m-1); }
+  };
+  const onEndChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const [y,m] = e.target.value.split('-').map(Number); if(!isNaN(y) && !isNaN(m)) { setEy(y); setEm(m-1); }
+  };
   return (
-    <div className="flex flex-wrap items-end gap-3">
+    <div className="flex flex-wrap items-end gap-4">
       <div className="space-y-1">
-        <Label className="text-sm text-slate-600">Left Header Title</Label>
+        <Label className="text-sm text-slate-600">Title</Label>
         <Input className="w-[180px] h-8" value={leftTitle} onChange={(e: React.ChangeEvent<HTMLInputElement>)=>setLeftTitle(e.target.value)} />
       </div>
       <div className="space-y-1">
-        <Label className="text-sm text-slate-600">Start</Label>
-        <div className="flex gap-2">
-          <Input type="number" className="w-[110px] h-8" value={sy} onChange={(e: React.ChangeEvent<HTMLInputElement>)=>setSy(Number(e.target.value))} />
-          <Select value={String(sm)} onValueChange={(v: string)=>setSm(Number(v))}>
-            <SelectTrigger className="w-[120px] h-8"><SelectValue placeholder="Month" /></SelectTrigger>
-            <SelectContent>{MONTHS.map((m,i)=>(<SelectItem key={m.label} value={String(i)}>{m.label}</SelectItem>))}</SelectContent>
-          </Select>
-        </div>
-      </div>
-      <div className="space-y-1">
-        <Label className="text-sm text-slate-600">End</Label>
-        <div className="flex gap-2">
-          <Input type="number" className="w-[110px] h-8" value={ey} onChange={(e: React.ChangeEvent<HTMLInputElement>)=>setEy(Number(e.target.value))} />
-          <Select value={String(em)} onValueChange={(v: string)=>setEm(Number(v))}>
-            <SelectTrigger className="w-[120px] h-8"><SelectValue placeholder="Month" /></SelectTrigger>
-            <SelectContent>{MONTHS.map((m,i)=>(<SelectItem key={m.label} value={String(i)}>{m.label}</SelectItem>))}</SelectContent>
-          </Select>
+        <Label className="text-sm text-slate-600">Date Range</Label>
+        <div className="flex items-center gap-2">
+          <Input type="month" value={startValue} onChange={onStartChange} className="h-8" />
+          <span className="text-slate-500">→</span>
+          <Input type="month" value={endValue} onChange={onEndChange} className="h-8" />
         </div>
       </div>
     </div>
