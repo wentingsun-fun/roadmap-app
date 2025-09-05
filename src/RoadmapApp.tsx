@@ -183,16 +183,24 @@ export default function RoadmapApp() {
   // Proportional lane heights based on number of items
   const calculateLaneHeight = useMemo(() => {
     const minHeight = 96; // 6rem = 96px
-    const itemHeight = 40; // Additional height per item beyond first
-    const maxItemsPerLane = Math.max(...visibleLanes.map(lane => (itemsByLane[lane.id] || []).length), 1);
+    const maxItemHeight = 64; // Maximum height per item
+    const padding = 16; // Top/bottom padding
     
     return (laneId: string) => {
-      const itemCount = (itemsByLane[laneId] || []).length;
-      if (itemCount <= 1) return minHeight;
+      const laneItems = itemsByLane[laneId] || [];
+      if (laneItems.length === 0) return minHeight;
       
-      // Calculate proportional height: more items = taller lane
-      const additionalHeight = Math.min(itemCount - 1, 3) * itemHeight; // Cap at 3 extra items worth
-      return minHeight + additionalHeight;
+      // Calculate total height needed for all items with their dynamic heights
+      let totalItemHeight = 0;
+      laneItems.forEach((item, index) => {
+        const titleLength = item.title.length;
+        const estimatedLines = Math.ceil(titleLength / 20);
+        const itemHeight = Math.min(32 + (estimatedLines - 1) * 16, maxItemHeight);
+        totalItemHeight += itemHeight;
+        if (index > 0) totalItemHeight += 4; // Add gap between items
+      });
+      
+      return Math.max(minHeight, totalItemHeight + padding * 2);
     };
   }, [itemsByLane, visibleLanes]);
 
@@ -364,19 +372,32 @@ export default function RoadmapApp() {
                       </div>
                     ))}
                     {/* Items positioned with stacking for multiple items */}
-                    {(itemsByLane[lane.id] || []).map((it, itemIdx) => (
-                      <BarPill
-                        key={it.id}
-                        item={it}
-                        laneColor={laneById[it.laneId]?.color || "#94a3b8"}
-                        colorClass={stageById[it.stageId]?.colorClass || "bg-slate-400"}
-                        onEdit={() => setEditing(it)}
-                        onDelete={() => remove(it.id)}
-                        absStart={absStart}
-                        cols={cols}
-                        stackIndex={itemIdx}
-                      />
-                    ))}
+                    {(itemsByLane[lane.id] || []).map((it, itemIdx) => {
+                      // Calculate cumulative position for this item
+                      let cumulativeTop = 16; // Start with padding
+                      for (let i = 0; i < itemIdx; i++) {
+                        const prevItem = (itemsByLane[lane.id] || [])[i];
+                        const prevTitleLength = prevItem.title.length;
+                        const prevEstimatedLines = Math.ceil(prevTitleLength / 20);
+                        const prevItemHeight = Math.min(32 + (prevEstimatedLines - 1) * 16, 64);
+                        cumulativeTop += prevItemHeight + 4; // Add height + gap
+                      }
+                      
+                      return (
+                        <BarPill
+                          key={it.id}
+                          item={it}
+                          laneColor={laneById[it.laneId]?.color || "#94a3b8"}
+                          colorClass={stageById[it.stageId]?.colorClass || "bg-slate-400"}
+                          onEdit={() => setEditing(it)}
+                          onDelete={() => remove(it.id)}
+                          absStart={absStart}
+                          cols={cols}
+                          stackIndex={itemIdx}
+                          verticalOffset={cumulativeTop}
+                        />
+                      );
+                    })}
                   </div>
                 );
               })}
@@ -444,7 +465,7 @@ function QuarterHeader({ tl, cols }: { tl: Timeline; cols: number }) {
 }
 
 /* ---------- Bar (pill) ---------- */
-function BarPill({ item, laneColor, colorClass, onEdit, onDelete, absStart, cols, stackIndex = 0 }:{ item: RoadmapItem; laneColor: string; colorClass: string; onEdit: () => void; onDelete: () => void; absStart: number; cols: number; stackIndex?: number; }) {
+function BarPill({ item, laneColor, colorClass, onEdit, onDelete, absStart, cols, stackIndex = 0, verticalOffset = 8 }:{ item: RoadmapItem; laneColor: string; colorClass: string; onEdit: () => void; onDelete: () => void; absStart: number; cols: number; stackIndex?: number; verticalOffset?: number; }) {
   // Use precise date positioning with day-level accuracy
   const itemAbsStart = toAbsWithDays(item.startYear, item.startMonth, item.startDay);
   const itemAbsEnd = toAbsWithDays(item.endYear, item.endMonth, item.endDay);
@@ -473,20 +494,34 @@ function BarPill({ item, laneColor, colorClass, onEdit, onDelete, absStart, cols
     width: gridSpan > 0 ? `${(totalSpan / gridSpan) * 100}%` : '100%',
     // Vertical stacking for multiple items in same lane
     position: 'absolute',
-    top: `${8 + stackIndex * 36}px`, // Stack items vertically with 36px spacing
+    top: `${verticalOffset}px`, // Use calculated cumulative offset
     zIndex: 10 + stackIndex,
   };
   
   const progress = typeof item.progress === "number" ? clamp(item.progress, 0, 100) : undefined;
+  
+  // Calculate dynamic height based on text length
+  const titleLength = item.title.length;
+  const estimatedLines = Math.ceil(titleLength / 20); // Rough estimate: ~20 chars per line
+  const minHeight = 32; // 2rem base height
+  const lineHeight = 16; // Additional height per line
+  const barHeight = Math.min(minHeight + (estimatedLines - 1) * lineHeight, 64); // Cap at 64px
+  
   return (
-    <motion.div layout style={style} className="relative h-8">
-      <div className={`group h-full rounded-full ${colorClass} text-white shadow-sm flex items-center pl-0 pr-2`}>
-        <span className="h-full w-2 rounded-l-full shrink-0" style={{ background: laneColor }} />
-        <span className="ml-2 text-xs font-medium truncate">{item.title}</span>
-        {typeof progress === "number" && <span className="ml-auto text-[11px] font-semibold opacity-90">{progress}%</span>}
-        <div className="ml-2 hidden gap-1 group-hover:flex">
-          <Button size="icon" variant="ghost" className="h-6 w-6 text-white/90" onClick={onEdit}><Edit2 className="h-3.5 w-3.5" /></Button>
-          <Button size="icon" variant="ghost" className="h-6 w-6 text-white/90" onClick={onDelete}><Trash2 className="h-3.5 w-3.5" /></Button>
+    <motion.div layout style={{...style, height: `${barHeight}px`}} className="relative">
+      <div className={`group h-full rounded-md ${colorClass} text-white shadow-sm flex items-center pl-0 pr-2 relative overflow-hidden`}>
+        <span className="h-full w-2 rounded-l-md shrink-0" style={{ background: laneColor }} />
+        <div className="ml-2 flex-1 flex items-center justify-between min-w-0">
+          <span className="text-xs font-medium leading-tight py-1 break-words hyphens-auto" style={{ wordBreak: 'break-word', lineHeight: '1.2' }}>
+            {item.title}
+          </span>
+          <div className="flex items-center gap-2 ml-2 shrink-0">
+            {typeof progress === "number" && <span className="text-[11px] font-semibold opacity-90">{progress}%</span>}
+            <div className="hidden gap-1 group-hover:flex">
+              <Button size="icon" variant="ghost" className="h-5 w-5 text-white/90" onClick={onEdit}><Edit2 className="h-3 w-3" /></Button>
+              <Button size="icon" variant="ghost" className="h-5 w-5 text-white/90" onClick={onDelete}><Trash2 className="h-3 w-3" /></Button>
+            </div>
+          </div>
         </div>
       </div>
       {item.milestones?.map((ms, i) => {
