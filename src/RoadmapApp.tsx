@@ -183,8 +183,8 @@ export default function RoadmapApp() {
   // Proportional lane heights based on number of items
   const calculateLaneHeight = useMemo(() => {
     const minHeight = 96; // 6rem = 96px
-    const maxItemHeight = 64; // Maximum height per item
-    const padding = 16; // Top/bottom padding
+    const maxItemHeight = 48; // Reduced max height per item for better fit
+    const padding = 12; // Reduced padding
     
     return (laneId: string) => {
       const laneItems = itemsByLane[laneId] || [];
@@ -194,10 +194,12 @@ export default function RoadmapApp() {
       let totalItemHeight = 0;
       laneItems.forEach((item, index) => {
         const titleLength = item.title.length;
-        const estimatedLines = Math.ceil(titleLength / 20);
-        const itemHeight = Math.min(32 + (estimatedLines - 1) * 16, maxItemHeight);
+        // Adjust characters per line based on estimated width
+        const charsPerLine = Math.max(15, Math.min(25, 50 - titleLength * 0.1)); 
+        const estimatedLines = Math.ceil(titleLength / charsPerLine);
+        const itemHeight = Math.min(28 + (estimatedLines - 1) * 14, maxItemHeight); // Reduced base and line height
         totalItemHeight += itemHeight;
-        if (index > 0) totalItemHeight += 4; // Add gap between items
+        if (index > 0) totalItemHeight += 3; // Reduced gap between items
       });
       
       return Math.max(minHeight, totalItemHeight + padding * 2);
@@ -374,13 +376,14 @@ export default function RoadmapApp() {
                     {/* Items positioned with stacking for multiple items */}
                     {(itemsByLane[lane.id] || []).map((it, itemIdx) => {
                       // Calculate cumulative position for this item
-                      let cumulativeTop = 16; // Start with padding
+                      let cumulativeTop = 12; // Start with reduced padding
                       for (let i = 0; i < itemIdx; i++) {
                         const prevItem = (itemsByLane[lane.id] || [])[i];
                         const prevTitleLength = prevItem.title.length;
-                        const prevEstimatedLines = Math.ceil(prevTitleLength / 20);
-                        const prevItemHeight = Math.min(32 + (prevEstimatedLines - 1) * 16, 64);
-                        cumulativeTop += prevItemHeight + 4; // Add height + gap
+                        const charsPerLine = Math.max(15, Math.min(25, 50 - prevTitleLength * 0.1));
+                        const prevEstimatedLines = Math.ceil(prevTitleLength / charsPerLine);
+                        const prevItemHeight = Math.min(28 + (prevEstimatedLines - 1) * 14, 48); // Match new sizing
+                        cumulativeTop += prevItemHeight + 3; // Add height + reduced gap
                       }
                       
                       return (
@@ -500,26 +503,46 @@ function BarPill({ item, laneColor, colorClass, onEdit, onDelete, absStart, cols
   
   const progress = typeof item.progress === "number" ? clamp(item.progress, 0, 100) : undefined;
   
-  // Calculate dynamic height based on text length
+  // Calculate dynamic height based on text length with improved sizing
   const titleLength = item.title.length;
-  const estimatedLines = Math.ceil(titleLength / 20); // Rough estimate: ~20 chars per line
-  const minHeight = 32; // 2rem base height
-  const lineHeight = 16; // Additional height per line
-  const barHeight = Math.min(minHeight + (estimatedLines - 1) * lineHeight, 64); // Cap at 64px
+  const charsPerLine = Math.max(15, Math.min(25, 50 - titleLength * 0.1)); // Adaptive chars per line
+  const estimatedLines = Math.ceil(titleLength / charsPerLine);
+  const minHeight = 28; // Reduced base height
+  const lineHeight = 14; // Reduced line height
+  const barHeight = Math.min(minHeight + (estimatedLines - 1) * lineHeight, 48); // Reduced max height
+  
+  // Determine optimal font size based on content and available space
+  const fontSize = titleLength > 40 ? '10px' : titleLength > 20 ? '11px' : '12px';
+  const lineHeightRatio = titleLength > 40 ? '1.1' : '1.2';
   
   return (
     <motion.div layout style={{...style, height: `${barHeight}px`}} className="relative">
-      <div className={`group h-full rounded-md ${colorClass} text-white shadow-sm flex items-center pl-0 pr-2 relative overflow-hidden`}>
+      <div className={`group h-full rounded-md ${colorClass} text-white shadow-sm flex items-center pl-0 pr-1 relative overflow-hidden`}>
         <span className="h-full w-2 rounded-l-md shrink-0" style={{ background: laneColor }} />
-        <div className="ml-2 flex-1 flex items-center justify-between min-w-0">
-          <span className="text-xs font-medium leading-tight py-1 break-words hyphens-auto" style={{ wordBreak: 'break-word', lineHeight: '1.2' }}>
+        <div className="ml-2 flex-1 flex items-center justify-between min-w-0 h-full">
+          <span 
+            className="font-medium leading-tight py-1 break-words hyphens-auto flex-1 pr-1" 
+            style={{ 
+              wordBreak: 'break-word', 
+              lineHeight: lineHeightRatio,
+              fontSize: fontSize,
+              display: '-webkit-box',
+              WebkitLineClamp: estimatedLines,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden'
+            }}
+          >
             {item.title}
           </span>
-          <div className="flex items-center gap-2 ml-2 shrink-0">
-            {typeof progress === "number" && <span className="text-[11px] font-semibold opacity-90">{progress}%</span>}
-            <div className="hidden gap-1 group-hover:flex">
-              <Button size="icon" variant="ghost" className="h-5 w-5 text-white/90" onClick={onEdit}><Edit2 className="h-3 w-3" /></Button>
-              <Button size="icon" variant="ghost" className="h-5 w-5 text-white/90" onClick={onDelete}><Trash2 className="h-3 w-3" /></Button>
+          <div className="flex items-center gap-1 shrink-0 self-start mt-1">
+            {typeof progress === "number" && <span className="text-[9px] font-semibold opacity-90 bg-black/20 px-1 rounded">{progress}%</span>}
+            <div className="hidden gap-0.5 group-hover:flex">
+              <Button size="icon" variant="ghost" className="h-4 w-4 text-white/90 p-0" onClick={onEdit}>
+                <Edit2 className="h-2.5 w-2.5" />
+              </Button>
+              <Button size="icon" variant="ghost" className="h-4 w-4 text-white/90 p-0" onClick={onDelete}>
+                <Trash2 className="h-2.5 w-2.5" />
+              </Button>
             </div>
           </div>
         </div>
