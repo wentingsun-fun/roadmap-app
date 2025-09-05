@@ -366,7 +366,7 @@ export default function RoadmapApp() {
               {visibleLanes.map((lane, laneIdx) => {
                 const laneHeight = calculateLaneHeight(lane.id);
                 return (
-                  <div key={lane.id} className={`timeline-grid relative grid ${laneIdx !== 0 ? "border-t" : ""}`} style={{ gridTemplateColumns: gridTemplate, height: `${laneHeight}px` }}>
+                  <div key={lane.id} className={`timeline-grid relative grid overflow-hidden ${laneIdx !== 0 ? "border-t" : ""}`} style={{ gridTemplateColumns: gridTemplate, height: `${laneHeight}px` }}>
                     {Array.from({ length: cols }).map((_, i) => (
                       <div key={i} className="h-full border-l/20 border-l relative">
                         <div className="absolute top-1 left-1 text-[10px] text-slate-400">
@@ -397,13 +397,15 @@ export default function RoadmapApp() {
                           onEdit={() => setEditing(it)}
                           onDelete={() => remove(it.id)}
                           onResize={(newStartDate, newEndDate) => {
-                            // Update item with new dates
+                            // Update item with new dates, preserving day information
                             const updatedItem = {
                               ...it,
                               startYear: Math.floor(newStartDate / 12),
                               startMonth: newStartDate % 12,
+                              startDay: it.startDay || 1, // Preserve existing day or default to 1
                               endYear: Math.floor(newEndDate / 12),
                               endMonth: newEndDate % 12,
+                              endDay: it.endDay || 1, // Preserve existing day or default to 1
                             };
                             upsert(updatedItem);
                           }}
@@ -486,33 +488,26 @@ function BarPill({ item, laneColor, colorClass, onEdit, onDelete, onResize, absS
   const [dragStartX, setDragStartX] = useState(0);
   const [originalStartDate, setOriginalStartDate] = useState(item.startYear * 12 + item.startMonth);
   const [originalEndDate, setOriginalEndDate] = useState(item.endYear * 12 + item.endMonth);
-  // Use month-aligned positioning for better grid alignment
-  const itemAbsStart = toAbs(item.startYear, item.startMonth);
-  const itemAbsEnd = toAbs(item.endYear, item.endMonth);
+  // Use day-level precision for proportional positioning within months
+  const itemAbsStart = toAbsWithDays(item.startYear, item.startMonth, item.startDay || 1);
+  const itemAbsEnd = toAbsWithDays(item.endYear, item.endMonth, item.endDay || 1);
   const timelineAbsEnd = absStart + cols;
   
   // Check if item is visible in current timeline range
   if (itemAbsEnd < absStart || itemAbsStart > timelineAbsEnd) return null;
   
-  // Calculate grid positions aligned to month boundaries
+  // Calculate fractional grid positions for proportional placement
   const startOffset = Math.max(0, itemAbsStart - absStart);
   const endOffset = Math.min(cols, itemAbsEnd - absStart);
   
-  // Convert to CSS grid column positions (1-based) - snap to month boundaries
+  // Convert to CSS grid column positions (1-based)
   const gridStart = Math.floor(startOffset) + 1;
-  const gridEnd = Math.floor(endOffset) + 1;
+  const gridEnd = Math.ceil(endOffset) + 1;
   
-  const style: React.CSSProperties = { 
-    gridColumn: `${gridStart} / ${gridEnd}`,
-    // Remove sub-grid positioning for clean month alignment
-    width: '100%',
-    // Vertical stacking for multiple items in same lane
-    position: 'absolute',
-    top: `${verticalOffset}px`, // Use calculated cumulative offset
-    zIndex: 10 + stackIndex,
-  };
-  
-  const progress = typeof item.progress === "number" ? clamp(item.progress, 0, 100) : undefined;
+  // Calculate precise positioning within the grid cells for proportional dates
+  const startFraction = startOffset % 1;
+  const totalSpan = endOffset - startOffset;
+  const gridSpan = gridEnd - gridStart;
   
   // Calculate dynamic height based on text length with conservative sizing to prevent overlap
   const titleLength = item.title.length;
@@ -523,6 +518,22 @@ function BarPill({ item, laneColor, colorClass, onEdit, onDelete, onResize, absS
   const minHeight = 32; // Slightly larger minimum height for better text visibility
   const lineHeight = 16; // Increased line height for better readability
   const barHeight = Math.min(minHeight + (actualLines - 1) * lineHeight, 64); // Increased max height but capped
+  
+  const style: React.CSSProperties = { 
+    gridColumn: `${gridStart} / ${gridEnd}`,
+    // Add sub-grid positioning for proportional date placement
+    marginLeft: `${startFraction * 100}%`,
+    width: gridSpan > 0 ? `${(totalSpan / gridSpan) * 100}%` : '100%',
+    // Vertical stacking for multiple items in same lane - ensure proper containment
+    position: 'absolute',
+    top: `${verticalOffset}px`, // Use calculated cumulative offset
+    zIndex: 10 + stackIndex,
+    // Ensure item doesn't exceed the lane height
+    maxHeight: `${barHeight}px`,
+    overflow: 'hidden',
+  };
+  
+  const progress = typeof item.progress === "number" ? clamp(item.progress, 0, 100) : undefined;
   
   // Determine optimal font size based on content and available space
   const fontSize = titleLength > 40 ? '10px' : titleLength > 20 ? '11px' : '12px';
