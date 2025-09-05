@@ -332,14 +332,16 @@ export default function RoadmapApp() {
               {visibleLanes.map((lane, i) => {
                 const laneHeight = calculateLaneHeight(lane.id);
                 return (
-                  <div key={lane.id} className={`flex items-center px-4 text-sm font-medium ${i !== 0 ? "border-t" : ""}`} style={{ height: `${laneHeight}px` }}>
-                    <span className="inline-flex items-center gap-2">
-                      <span className="h-4 w-1.5 rounded-full" style={{ background: lane.color }} />
-                      {lane.label}
-                      {(itemsByLane[lane.id] || []).length > 1 && (
-                        <span className="text-xs text-slate-500 ml-2">({(itemsByLane[lane.id] || []).length} items)</span>
-                      )}
-                    </span>
+                  <div key={lane.id} className={`relative px-4 text-sm font-medium ${i !== 0 ? "border-t" : ""}`} style={{ height: `${laneHeight}px` }}>
+                    <div className="absolute top-3 left-4 flex items-center">
+                      <span className="inline-flex items-center gap-2">
+                        <span className="h-4 w-1.5 rounded-full" style={{ background: lane.color }} />
+                        {lane.label}
+                        {(itemsByLane[lane.id] || []).length > 1 && (
+                          <span className="text-xs text-slate-500 ml-2">({(itemsByLane[lane.id] || []).length} items)</span>
+                        )}
+                      </span>
+                    </div>
                   </div>
                 );
               })}
@@ -365,7 +367,7 @@ export default function RoadmapApp() {
               {visibleLanes.map((lane, laneIdx) => {
                 const laneHeight = calculateLaneHeight(lane.id);
                 return (
-                  <div key={lane.id} className={`relative grid items-center ${laneIdx !== 0 ? "border-t" : ""}`} style={{ gridTemplateColumns: gridTemplate, height: `${laneHeight}px` }}>
+                  <div key={lane.id} className={`timeline-grid relative grid ${laneIdx !== 0 ? "border-t" : ""}`} style={{ gridTemplateColumns: gridTemplate, height: `${laneHeight}px` }}>
                     {Array.from({ length: cols }).map((_, i) => (
                       <div key={i} className="h-full border-l/20 border-l relative">
                         <div className="absolute top-1 left-1 text-[10px] text-slate-400">
@@ -375,8 +377,8 @@ export default function RoadmapApp() {
                     ))}
                     {/* Items positioned with stacking for multiple items */}
                     {(itemsByLane[lane.id] || []).map((it, itemIdx) => {
-                      // Calculate cumulative position for this item
-                      let cumulativeTop = 12; // Start with reduced padding
+                      // Calculate cumulative position for this item - align with lane header at top-3 (12px)
+                      let cumulativeTop = 12; // Match lane header positioning
                       for (let i = 0; i < itemIdx; i++) {
                         const prevItem = (itemsByLane[lane.id] || [])[i];
                         const prevTitleLength = prevItem.title.length;
@@ -394,6 +396,17 @@ export default function RoadmapApp() {
                           colorClass={stageById[it.stageId]?.colorClass || "bg-slate-400"}
                           onEdit={() => setEditing(it)}
                           onDelete={() => remove(it.id)}
+                          onResize={(newStartDate, newEndDate) => {
+                            // Update item with new dates
+                            const updatedItem = {
+                              ...it,
+                              startYear: Math.floor(newStartDate / 12),
+                              startMonth: newStartDate % 12,
+                              endYear: Math.floor(newEndDate / 12),
+                              endMonth: newEndDate % 12,
+                            };
+                            upsert(updatedItem);
+                          }}
                           absStart={absStart}
                           cols={cols}
                           stackIndex={itemIdx}
@@ -468,7 +481,11 @@ function QuarterHeader({ tl, cols }: { tl: Timeline; cols: number }) {
 }
 
 /* ---------- Bar (pill) ---------- */
-function BarPill({ item, laneColor, colorClass, onEdit, onDelete, absStart, cols, stackIndex = 0, verticalOffset = 8 }:{ item: RoadmapItem; laneColor: string; colorClass: string; onEdit: () => void; onDelete: () => void; absStart: number; cols: number; stackIndex?: number; verticalOffset?: number; }) {
+function BarPill({ item, laneColor, colorClass, onEdit, onDelete, onResize, absStart, cols, stackIndex = 0, verticalOffset = 8 }:{ item: RoadmapItem; laneColor: string; colorClass: string; onEdit: () => void; onDelete: () => void; onResize: (newStartDate: number, newEndDate: number) => void; absStart: number; cols: number; stackIndex?: number; verticalOffset?: number; }) {
+  const [isDragging, setIsDragging] = useState<'start' | 'end' | null>(null);
+  const [dragStartX, setDragStartX] = useState(0);
+  const [originalStartDate, setOriginalStartDate] = useState(item.startYear * 12 + item.startMonth);
+  const [originalEndDate, setOriginalEndDate] = useState(item.endYear * 12 + item.endMonth);
   // Use precise date positioning with day-level accuracy
   const itemAbsStart = toAbsWithDays(item.startYear, item.startMonth, item.startDay);
   const itemAbsEnd = toAbsWithDays(item.endYear, item.endMonth, item.endDay);
@@ -515,9 +532,74 @@ function BarPill({ item, laneColor, colorClass, onEdit, onDelete, absStart, cols
   const fontSize = titleLength > 40 ? '10px' : titleLength > 20 ? '11px' : '12px';
   const lineHeightRatio = titleLength > 40 ? '1.1' : '1.2';
   
+  // Handle mouse events for dragging
+  const handleMouseDown = (edge: 'start' | 'end') => (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(edge);
+    setDragStartX(e.clientX);
+    setOriginalStartDate(item.startYear * 12 + item.startMonth);
+    setOriginalEndDate(item.endYear * 12 + item.endMonth);
+  };
+
+  const handleMouseMove = (e: MouseEvent) => {
+    if (!isDragging) return;
+    
+    const deltaX = e.clientX - dragStartX;
+    const timelineElement = document.querySelector('.timeline-grid');
+    if (!timelineElement) return;
+    
+    const timelineWidth = timelineElement.getBoundingClientRect().width;
+    const monthsPerPixel = cols / timelineWidth;
+    const deltaMonths = Math.round(deltaX * monthsPerPixel);
+    
+    if (isDragging === 'start') {
+      const newStartDate = Math.max(0, originalStartDate + deltaMonths);
+      const currentEndDate = originalEndDate;
+      if (newStartDate < currentEndDate) {
+        onResize(newStartDate, currentEndDate);
+      }
+    } else if (isDragging === 'end') {
+      const newEndDate = Math.max(originalStartDate + 1, originalEndDate + deltaMonths);
+      onResize(originalStartDate, newEndDate);
+    }
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(null);
+  };
+
+  // Add global mouse event listeners when dragging
+  React.useEffect(() => {
+    if (isDragging) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      return () => {
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [isDragging, dragStartX, originalStartDate, originalEndDate]);
+
   return (
     <motion.div layout style={{...style, height: `${barHeight}px`}} className="relative">
-      <div className={`group h-full rounded-md ${colorClass} text-white shadow-sm flex items-center pl-0 pr-1 relative overflow-hidden`}>
+      {/* Left resize handle */}
+      <div
+        className="absolute left-0 top-0 w-1 h-full cursor-ew-resize z-20 hover:bg-white/30 flex items-center justify-center group"
+        onMouseDown={handleMouseDown('start')}
+      >
+        <div className="w-0.5 h-3/4 bg-white/50 group-hover:bg-white/80 transition-colors" />
+      </div>
+      
+      {/* Right resize handle */}
+      <div
+        className="absolute right-0 top-0 w-1 h-full cursor-ew-resize z-20 hover:bg-white/30 flex items-center justify-center group"
+        onMouseDown={handleMouseDown('end')}
+      >
+        <div className="w-0.5 h-3/4 bg-white/50 group-hover:bg-white/80 transition-colors" />
+      </div>
+
+      <div className={`group h-full rounded-md ${colorClass} text-white shadow-sm flex items-center pl-0 pr-1 relative overflow-hidden ${isDragging ? 'opacity-80' : ''}`}>
         <span className="h-full w-2 rounded-l-md shrink-0" style={{ background: laneColor }} />
         <div className="ml-2 flex-1 flex items-center justify-between min-w-0 h-full">
           <span 
