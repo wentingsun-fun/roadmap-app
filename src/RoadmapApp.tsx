@@ -147,6 +147,38 @@ function toAbsWithDays(year: number, month: number, day: number): number {
 }
 function rangeToCols(tl: Timeline) { const start = toAbs(tl.startYear, tl.startMonth); const end = toAbs(tl.endYear, tl.endMonth); return Math.max(1, end - start + 1); }
 
+// Calculate optimal timeline range to fit all items with some padding
+function calculateOptimalTimelineRange(items: RoadmapItem[]): { startYear: number; startMonth: number; endYear: number; endMonth: number } {
+  if (items.length === 0) {
+    // Default to current year if no items
+    const thisYear = new Date().getFullYear();
+    return { startYear: thisYear, startMonth: 0, endYear: thisYear, endMonth: 11 };
+  }
+
+  // Find the earliest start date and latest end date among all items
+  let earliestAbs = Infinity;
+  let latestAbs = -Infinity;
+
+  items.forEach(item => {
+    const itemStart = toAbs(item.startYear, item.startMonth);
+    const itemEnd = toAbs(item.endYear, item.endMonth);
+    earliestAbs = Math.min(earliestAbs, itemStart);
+    latestAbs = Math.max(latestAbs, itemEnd);
+  });
+
+  // Add padding: 1 month before earliest, 2 months after latest
+  const paddedStart = earliestAbs - 1;
+  const paddedEnd = latestAbs + 2;
+
+  // Convert back to year/month
+  const startYear = Math.floor(paddedStart / 12);
+  const startMonth = paddedStart % 12;
+  const endYear = Math.floor(paddedEnd / 12);
+  const endMonth = paddedEnd % 12;
+
+  return { startYear, startMonth, endYear, endMonth };
+}
+
 /* ============================================================
    App
 ============================================================ */
@@ -170,9 +202,21 @@ export default function RoadmapApp() {
     return map;
   }, [items, lanes]);
 
-  const cols = rangeToCols(tl);
+  // Calculate dynamic timeline range based on items
+  const optimalRange = useMemo(() => calculateOptimalTimelineRange(items), [items]);
+  
+  // Use dynamic timeline if we have items, otherwise use stored timeline for manual control
+  const effectiveTimeline = items.length > 0 ? {
+    ...tl,
+    startYear: optimalRange.startYear,
+    startMonth: optimalRange.startMonth,
+    endYear: optimalRange.endYear,
+    endMonth: optimalRange.endMonth
+  } : tl;
+
+  const cols = rangeToCols(effectiveTimeline);
   const gridTemplate = `repeat(${cols}, minmax(0, 1fr))`;
-  const absStart = toAbs(tl.startYear, tl.startMonth);
+  const absStart = toAbs(effectiveTimeline.startYear, effectiveTimeline.startMonth);
 
   // Expandable timeline logic
   const maxVisibleLanes = 5;
@@ -319,7 +363,7 @@ export default function RoadmapApp() {
 
         {/* Timeline */}
         <div className="rounded-2xl border bg-white p-0 shadow-sm overflow-hidden">
-          <QuarterHeader tl={tl} cols={cols} />
+          <QuarterHeader tl={effectiveTimeline} cols={cols} />
           <div className="grid grid-cols-[200px_1fr]">
             {/* Left: editable header title + lanes */}
             <div className="border-t">
@@ -370,7 +414,7 @@ export default function RoadmapApp() {
                     {Array.from({ length: cols }).map((_, i) => (
                       <div key={i} className="h-full border-l/20 border-l relative">
                         <div className="absolute top-1 left-1 text-[10px] text-slate-400">
-                          {monthName(tl.startMonth + i)} {/* month label */}
+                          {monthName(effectiveTimeline.startMonth + i)} {/* month label */}
                         </div>
                       </div>
                     ))}
