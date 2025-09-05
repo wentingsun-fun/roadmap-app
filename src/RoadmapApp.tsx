@@ -144,6 +144,7 @@ export default function RoadmapApp() {
   const [editing, setEditing] = useState<RoadmapItem | null>(null);
   const [laneMgrOpen, setLaneMgrOpen] = useState(false);
   const [stageMgrOpen, setStageMgrOpen] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   useEffect(() => { save(items, lanes, stages, tl); }, [items, lanes, stages, tl]);
 
@@ -160,6 +161,12 @@ export default function RoadmapApp() {
   const cols = rangeToCols(tl);
   const gridTemplate = `repeat(${cols}, minmax(0, 1fr))`;
   const absStart = toAbs(tl.startYear, tl.startMonth);
+
+  // Expandable timeline logic
+  const maxVisibleLanes = 5;
+  const shouldCollapse = lanes.length > maxVisibleLanes;
+  const visibleLanes = shouldCollapse && !isExpanded ? lanes.slice(0, maxVisibleLanes) : lanes;
+  const hiddenCount = lanes.length - maxVisibleLanes;
 
   function upsert(item: RoadmapItem) {
     setState(prev => ({
@@ -284,7 +291,7 @@ export default function RoadmapApp() {
               <div className="px-4 py-3 border-b">
                 <div className="text-xs font-semibold tracking-wide text-slate-600 truncate">{tl.leftTitle}</div>
               </div>
-              {lanes.map((lane, i) => (
+              {visibleLanes.map((lane, i) => (
                 <div key={lane.id} className={`flex items-center h-24 px-4 text-sm font-medium ${i !== 0 ? "border-t" : ""}`}>
                   <span className="inline-flex items-center gap-2">
                     <span className="h-4 w-1.5 rounded-full" style={{ background: lane.color }} />
@@ -292,11 +299,26 @@ export default function RoadmapApp() {
                   </span>
                 </div>
               ))}
+              {shouldCollapse && (
+                <div className="border-t px-4 py-3 bg-slate-50">
+                  <Button 
+                    variant="ghost" 
+                    onClick={() => setIsExpanded(!isExpanded)}
+                    className="h-8 text-xs text-slate-600 hover:text-slate-900"
+                  >
+                    {isExpanded ? (
+                      <>▲ Show Less</>
+                    ) : (
+                      <>▼ Show {hiddenCount} More Lane{hiddenCount !== 1 ? 's' : ''}</>
+                    )}
+                  </Button>
+                </div>
+              )}
             </div>
 
             {/* Right: grid per lane */}
             <div className="border-l">
-              {lanes.map((lane, laneIdx) => (
+              {visibleLanes.map((lane, laneIdx) => (
                 <div key={lane.id} className={`relative grid items-center ${laneIdx !== 0 ? "border-t" : ""}`} style={{ gridTemplateColumns: gridTemplate, height: "6rem" }}>
                   {Array.from({ length: cols }).map((_, i) => (
                     <div key={i} className="h-full border-l/20 border-l relative">
@@ -319,6 +341,17 @@ export default function RoadmapApp() {
                   ))}
                 </div>
               ))}
+              {shouldCollapse && (
+                <div className={`border-t bg-slate-50 ${isExpanded ? 'hidden' : 'flex'} items-center justify-center`} style={{ height: "3rem" }}>
+                  <Button 
+                    variant="ghost" 
+                    onClick={() => setIsExpanded(true)}
+                    className="h-8 text-xs text-slate-500 hover:text-slate-700"
+                  >
+                    ▼ Show {hiddenCount} more row{hiddenCount !== 1 ? 's' : ''}
+                  </Button>
+                </div>
+              )}
             </div>
           </div>
         </div>
