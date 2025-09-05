@@ -180,6 +180,22 @@ export default function RoadmapApp() {
   const visibleLanes = shouldCollapse && !isExpanded ? lanes.slice(0, maxVisibleLanes) : lanes;
   const hiddenCount = lanes.length - maxVisibleLanes;
 
+  // Proportional lane heights based on number of items
+  const calculateLaneHeight = useMemo(() => {
+    const minHeight = 96; // 6rem = 96px
+    const itemHeight = 40; // Additional height per item beyond first
+    const maxItemsPerLane = Math.max(...visibleLanes.map(lane => (itemsByLane[lane.id] || []).length), 1);
+    
+    return (laneId: string) => {
+      const itemCount = (itemsByLane[laneId] || []).length;
+      if (itemCount <= 1) return minHeight;
+      
+      // Calculate proportional height: more items = taller lane
+      const additionalHeight = Math.min(itemCount - 1, 3) * itemHeight; // Cap at 3 extra items worth
+      return minHeight + additionalHeight;
+    };
+  }, [itemsByLane, visibleLanes]);
+
   function upsert(item: RoadmapItem) {
     setState(prev => ({
       ...prev,
@@ -303,14 +319,20 @@ export default function RoadmapApp() {
               <div className="px-4 py-3 border-b">
                 <div className="text-xs font-semibold tracking-wide text-slate-600 truncate">{tl.leftTitle}</div>
               </div>
-              {visibleLanes.map((lane, i) => (
-                <div key={lane.id} className={`flex items-center h-24 px-4 text-sm font-medium ${i !== 0 ? "border-t" : ""}`}>
-                  <span className="inline-flex items-center gap-2">
-                    <span className="h-4 w-1.5 rounded-full" style={{ background: lane.color }} />
-                    {lane.label}
-                  </span>
-                </div>
-              ))}
+              {visibleLanes.map((lane, i) => {
+                const laneHeight = calculateLaneHeight(lane.id);
+                return (
+                  <div key={lane.id} className={`flex items-center px-4 text-sm font-medium ${i !== 0 ? "border-t" : ""}`} style={{ height: `${laneHeight}px` }}>
+                    <span className="inline-flex items-center gap-2">
+                      <span className="h-4 w-1.5 rounded-full" style={{ background: lane.color }} />
+                      {lane.label}
+                      {(itemsByLane[lane.id] || []).length > 1 && (
+                        <span className="text-xs text-slate-500 ml-2">({(itemsByLane[lane.id] || []).length} items)</span>
+                      )}
+                    </span>
+                  </div>
+                );
+              })}
               {shouldCollapse && (
                 <div className="border-t px-4 py-3 bg-slate-50">
                   <Button 
@@ -330,29 +352,34 @@ export default function RoadmapApp() {
 
             {/* Right: grid per lane */}
             <div className="border-l">
-              {visibleLanes.map((lane, laneIdx) => (
-                <div key={lane.id} className={`relative grid items-center ${laneIdx !== 0 ? "border-t" : ""}`} style={{ gridTemplateColumns: gridTemplate, height: "6rem" }}>
-                  {Array.from({ length: cols }).map((_, i) => (
-                    <div key={i} className="h-full border-l/20 border-l relative">
-                      <div className="absolute top-1 left-1 text-[10px] text-slate-400">
-                        {monthName(tl.startMonth + i)} {/* month label */}
+              {visibleLanes.map((lane, laneIdx) => {
+                const laneHeight = calculateLaneHeight(lane.id);
+                return (
+                  <div key={lane.id} className={`relative grid items-center ${laneIdx !== 0 ? "border-t" : ""}`} style={{ gridTemplateColumns: gridTemplate, height: `${laneHeight}px` }}>
+                    {Array.from({ length: cols }).map((_, i) => (
+                      <div key={i} className="h-full border-l/20 border-l relative">
+                        <div className="absolute top-1 left-1 text-[10px] text-slate-400">
+                          {monthName(tl.startMonth + i)} {/* month label */}
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                  {(itemsByLane[lane.id] || []).map((it) => (
-                    <BarPill
-                      key={it.id}
-                      item={it}
-                      laneColor={laneById[it.laneId]?.color || "#94a3b8"}
-                      colorClass={stageById[it.stageId]?.colorClass || "bg-slate-400"}
-                      onEdit={() => setEditing(it)}
-                      onDelete={() => remove(it.id)}
-                      absStart={absStart}
-                      cols={cols}
-                    />
-                  ))}
-                </div>
-              ))}
+                    ))}
+                    {/* Items positioned with stacking for multiple items */}
+                    {(itemsByLane[lane.id] || []).map((it, itemIdx) => (
+                      <BarPill
+                        key={it.id}
+                        item={it}
+                        laneColor={laneById[it.laneId]?.color || "#94a3b8"}
+                        colorClass={stageById[it.stageId]?.colorClass || "bg-slate-400"}
+                        onEdit={() => setEditing(it)}
+                        onDelete={() => remove(it.id)}
+                        absStart={absStart}
+                        cols={cols}
+                        stackIndex={itemIdx}
+                      />
+                    ))}
+                  </div>
+                );
+              })}
               {shouldCollapse && (
                 <div className={`border-t bg-slate-50 ${isExpanded ? 'hidden' : 'flex'} items-center justify-center`} style={{ height: "3rem" }}>
                   <Button 
@@ -417,7 +444,7 @@ function QuarterHeader({ tl, cols }: { tl: Timeline; cols: number }) {
 }
 
 /* ---------- Bar (pill) ---------- */
-function BarPill({ item, laneColor, colorClass, onEdit, onDelete, absStart, cols }:{ item: RoadmapItem; laneColor: string; colorClass: string; onEdit: () => void; onDelete: () => void; absStart: number; cols: number; }) {
+function BarPill({ item, laneColor, colorClass, onEdit, onDelete, absStart, cols, stackIndex = 0 }:{ item: RoadmapItem; laneColor: string; colorClass: string; onEdit: () => void; onDelete: () => void; absStart: number; cols: number; stackIndex?: number; }) {
   // Use precise date positioning with day-level accuracy
   const itemAbsStart = toAbsWithDays(item.startYear, item.startMonth, item.startDay);
   const itemAbsEnd = toAbsWithDays(item.endYear, item.endMonth, item.endDay);
@@ -443,7 +470,11 @@ function BarPill({ item, laneColor, colorClass, onEdit, onDelete, absStart, cols
     gridColumn: `${gridStart} / ${gridEnd}`,
     // Add sub-grid positioning for more precise placement
     marginLeft: `${startFraction * 100}%`,
-    width: gridSpan > 0 ? `${(totalSpan / gridSpan) * 100}%` : '100%'
+    width: gridSpan > 0 ? `${(totalSpan / gridSpan) * 100}%` : '100%',
+    // Vertical stacking for multiple items in same lane
+    position: 'absolute',
+    top: `${8 + stackIndex * 36}px`, // Stack items vertically with 36px spacing
+    zIndex: 10 + stackIndex,
   };
   
   const progress = typeof item.progress === "number" ? clamp(item.progress, 0, 100) : undefined;
