@@ -180,29 +180,28 @@ export default function RoadmapApp() {
   const visibleLanes = shouldCollapse && !isExpanded ? lanes.slice(0, maxVisibleLanes) : lanes;
   const hiddenCount = lanes.length - maxVisibleLanes;
 
-  // Proportional lane heights based on number of items
+  // Proportional lane heights based on number of items with improved sizing
   const calculateLaneHeight = useMemo(() => {
-    const minHeight = 96; // 6rem = 96px
-    const maxItemHeight = 48; // Reduced max height per item for better fit
-    const padding = 12; // Reduced padding
+    const minHeight = 100; // Increased minimum height for better text visibility
+    const padding = 16; // Increased padding for better spacing
     
     return (laneId: string) => {
       const laneItems = itemsByLane[laneId] || [];
       if (laneItems.length === 0) return minHeight;
       
       // Calculate total height needed for all items with their dynamic heights
-      let totalItemHeight = 0;
+      let totalItemHeight = 12; // Start with initial offset to match item positioning
       laneItems.forEach((item, index) => {
         const titleLength = item.title.length;
-        // Adjust characters per line based on estimated width
-        const charsPerLine = Math.max(15, Math.min(25, 50 - titleLength * 0.1)); 
+        const charsPerLine = Math.max(20, Math.min(30, 60 - titleLength * 0.1)); // Match BarPill logic
         const estimatedLines = Math.ceil(titleLength / charsPerLine);
-        const itemHeight = Math.min(28 + (estimatedLines - 1) * 14, maxItemHeight); // Reduced base and line height
+        const actualLines = Math.min(estimatedLines, 3); // Max 3 lines to prevent overlap
+        const itemHeight = Math.min(32 + (actualLines - 1) * 16, 64); // Match BarPill sizing
         totalItemHeight += itemHeight;
-        if (index > 0) totalItemHeight += 3; // Reduced gap between items
+        if (index < laneItems.length - 1) totalItemHeight += 4; // Gap between items
       });
       
-      return Math.max(minHeight, totalItemHeight + padding * 2);
+      return Math.max(minHeight, totalItemHeight + padding);
     };
   }, [itemsByLane, visibleLanes]);
 
@@ -382,10 +381,11 @@ export default function RoadmapApp() {
                       for (let i = 0; i < itemIdx; i++) {
                         const prevItem = (itemsByLane[lane.id] || [])[i];
                         const prevTitleLength = prevItem.title.length;
-                        const charsPerLine = Math.max(15, Math.min(25, 50 - prevTitleLength * 0.1));
+                        const charsPerLine = Math.max(20, Math.min(30, 60 - prevTitleLength * 0.1));
                         const prevEstimatedLines = Math.ceil(prevTitleLength / charsPerLine);
-                        const prevItemHeight = Math.min(28 + (prevEstimatedLines - 1) * 14, 48); // Match new sizing
-                        cumulativeTop += prevItemHeight + 3; // Add height + reduced gap
+                        const actualLines = Math.min(prevEstimatedLines, 3); // Max 3 lines
+                        const prevItemHeight = Math.min(32 + (actualLines - 1) * 16, 64); // Match new sizing
+                        cumulativeTop += prevItemHeight + 4; // Add height + gap for spacing
                       }
                       
                       return (
@@ -486,32 +486,26 @@ function BarPill({ item, laneColor, colorClass, onEdit, onDelete, onResize, absS
   const [dragStartX, setDragStartX] = useState(0);
   const [originalStartDate, setOriginalStartDate] = useState(item.startYear * 12 + item.startMonth);
   const [originalEndDate, setOriginalEndDate] = useState(item.endYear * 12 + item.endMonth);
-  // Use precise date positioning with day-level accuracy
-  const itemAbsStart = toAbsWithDays(item.startYear, item.startMonth, item.startDay);
-  const itemAbsEnd = toAbsWithDays(item.endYear, item.endMonth, item.endDay);
+  // Use month-aligned positioning for better grid alignment
+  const itemAbsStart = toAbs(item.startYear, item.startMonth);
+  const itemAbsEnd = toAbs(item.endYear, item.endMonth);
   const timelineAbsEnd = absStart + cols;
   
   // Check if item is visible in current timeline range
   if (itemAbsEnd < absStart || itemAbsStart > timelineAbsEnd) return null;
   
-  // Calculate fractional grid positions
+  // Calculate grid positions aligned to month boundaries
   const startOffset = Math.max(0, itemAbsStart - absStart);
   const endOffset = Math.min(cols, itemAbsEnd - absStart);
   
-  // Convert to CSS grid column positions (1-based)
+  // Convert to CSS grid column positions (1-based) - snap to month boundaries
   const gridStart = Math.floor(startOffset) + 1;
-  const gridEnd = Math.ceil(endOffset) + 1;
-  
-  // Calculate precise positioning within the grid cells
-  const startFraction = startOffset % 1;
-  const totalSpan = endOffset - startOffset;
-  const gridSpan = gridEnd - gridStart;
+  const gridEnd = Math.floor(endOffset) + 1;
   
   const style: React.CSSProperties = { 
     gridColumn: `${gridStart} / ${gridEnd}`,
-    // Add sub-grid positioning for more precise placement
-    marginLeft: `${startFraction * 100}%`,
-    width: gridSpan > 0 ? `${(totalSpan / gridSpan) * 100}%` : '100%',
+    // Remove sub-grid positioning for clean month alignment
+    width: '100%',
     // Vertical stacking for multiple items in same lane
     position: 'absolute',
     top: `${verticalOffset}px`, // Use calculated cumulative offset
@@ -520,13 +514,15 @@ function BarPill({ item, laneColor, colorClass, onEdit, onDelete, onResize, absS
   
   const progress = typeof item.progress === "number" ? clamp(item.progress, 0, 100) : undefined;
   
-  // Calculate dynamic height based on text length with improved sizing
+  // Calculate dynamic height based on text length with conservative sizing to prevent overlap
   const titleLength = item.title.length;
-  const charsPerLine = Math.max(15, Math.min(25, 50 - titleLength * 0.1)); // Adaptive chars per line
+  const charsPerLine = Math.max(20, Math.min(30, 60 - titleLength * 0.1)); // More conservative chars per line
   const estimatedLines = Math.ceil(titleLength / charsPerLine);
-  const minHeight = 28; // Reduced base height
-  const lineHeight = 14; // Reduced line height
-  const barHeight = Math.min(minHeight + (estimatedLines - 1) * lineHeight, 48); // Reduced max height
+  const maxLines = 3; // Limit to 3 lines to prevent overlap
+  const actualLines = Math.min(estimatedLines, maxLines);
+  const minHeight = 32; // Slightly larger minimum height for better text visibility
+  const lineHeight = 16; // Increased line height for better readability
+  const barHeight = Math.min(minHeight + (actualLines - 1) * lineHeight, 64); // Increased max height but capped
   
   // Determine optimal font size based on content and available space
   const fontSize = titleLength > 40 ? '10px' : titleLength > 20 ? '11px' : '12px';
@@ -603,15 +599,16 @@ function BarPill({ item, laneColor, colorClass, onEdit, onDelete, onResize, absS
         <span className="h-full w-2 rounded-l-md shrink-0" style={{ background: laneColor }} />
         <div className="ml-2 flex-1 flex items-center justify-between min-w-0 h-full">
           <span 
-            className="font-medium leading-tight py-1 break-words hyphens-auto flex-1 pr-1" 
+            className="font-medium leading-tight py-1 break-words hyphens-auto flex-1 pr-1 overflow-hidden" 
             style={{ 
               wordBreak: 'break-word', 
               lineHeight: lineHeightRatio,
               fontSize: fontSize,
               display: '-webkit-box',
-              WebkitLineClamp: estimatedLines,
+              WebkitLineClamp: actualLines, // Use actualLines instead of estimatedLines
               WebkitBoxOrient: 'vertical',
-              overflow: 'hidden'
+              overflow: 'hidden',
+              textOverflow: 'ellipsis'
             }}
           >
             {item.title}
