@@ -132,7 +132,19 @@ const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n
 const monthName = (i: number) => MONTHS[((i % 12) + 12) % 12].label;
 const quarterName = (i: number) => MONTHS[((i % 12) + 12) % 12].quarter;
 
+/* ---------- Enhanced Date Helpers ---------- */
 function toAbs(year: number, month: number) { return year * 12 + month; }
+
+function daysInMonth(year: number, month: number): number {
+  return new Date(year, month + 1, 0).getDate();
+}
+
+function toAbsWithDays(year: number, month: number, day: number): number {
+  // Convert to absolute position with fractional day precision
+  const daysInThisMonth = daysInMonth(year, month);
+  const dayFraction = (day - 1) / daysInThisMonth; // 0-based day as fraction
+  return year * 12 + month + dayFraction;
+}
 function rangeToCols(tl: Timeline) { const start = toAbs(tl.startYear, tl.startMonth); const end = toAbs(tl.endYear, tl.endMonth); return Math.max(1, end - start + 1); }
 
 /* ============================================================
@@ -406,13 +418,34 @@ function QuarterHeader({ tl, cols }: { tl: Timeline; cols: number }) {
 
 /* ---------- Bar (pill) ---------- */
 function BarPill({ item, laneColor, colorClass, onEdit, onDelete, absStart, cols }:{ item: RoadmapItem; laneColor: string; colorClass: string; onEdit: () => void; onDelete: () => void; absStart: number; cols: number; }) {
-  const itemAbsStart = toAbs(item.startYear, item.startMonth);
-  const itemAbsEnd = toAbs(item.endYear, item.endMonth);
-  const first = 0, last = cols - 1;
-  if (itemAbsEnd < absStart || itemAbsStart > absStart + last) return null;
-  const start = Math.max(first, itemAbsStart - absStart);
-  const end = Math.min(last, itemAbsEnd - absStart);
-  const style: React.CSSProperties = { gridColumn: `${start + 1} / ${end + 2}` };
+  // Use precise date positioning with day-level accuracy
+  const itemAbsStart = toAbsWithDays(item.startYear, item.startMonth, item.startDay);
+  const itemAbsEnd = toAbsWithDays(item.endYear, item.endMonth, item.endDay);
+  const timelineAbsEnd = absStart + cols;
+  
+  // Check if item is visible in current timeline range
+  if (itemAbsEnd < absStart || itemAbsStart > timelineAbsEnd) return null;
+  
+  // Calculate fractional grid positions
+  const startOffset = Math.max(0, itemAbsStart - absStart);
+  const endOffset = Math.min(cols, itemAbsEnd - absStart);
+  
+  // Convert to CSS grid column positions (1-based)
+  const gridStart = Math.floor(startOffset) + 1;
+  const gridEnd = Math.ceil(endOffset) + 1;
+  
+  // Calculate precise positioning within the grid cells
+  const startFraction = startOffset % 1;
+  const totalSpan = endOffset - startOffset;
+  const gridSpan = gridEnd - gridStart;
+  
+  const style: React.CSSProperties = { 
+    gridColumn: `${gridStart} / ${gridEnd}`,
+    // Add sub-grid positioning for more precise placement
+    marginLeft: `${startFraction * 100}%`,
+    width: gridSpan > 0 ? `${(totalSpan / gridSpan) * 100}%` : '100%'
+  };
+  
   const progress = typeof item.progress === "number" ? clamp(item.progress, 0, 100) : undefined;
   return (
     <motion.div layout style={style} className="relative h-8">
@@ -428,8 +461,9 @@ function BarPill({ item, laneColor, colorClass, onEdit, onDelete, absStart, cols
       {item.milestones?.map((ms, i) => {
         // Milestones are month-based; anchor them to the item's startYear for absolute positioning
         const msAbs = toAbs(item.startYear, ms.month);
-        if (msAbs < absStart + start || msAbs > absStart + end) return null;
-        const pct = (msAbs - (absStart + start)) / Math.max(1, end - start);
+        if (msAbs < absStart || msAbs > absStart + cols) return null;
+        const msOffset = msAbs - absStart;
+        const pct = (msOffset - startOffset) / Math.max(0.1, endOffset - startOffset);
         return (
           <div key={i} className="absolute -top-5" style={{ left: `calc(${pct * 100}% - 6px)` }}>
             <Flag className="h-3.5 w-3.5 text-slate-700" />
