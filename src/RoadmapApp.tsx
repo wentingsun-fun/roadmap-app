@@ -47,11 +47,12 @@ type RoadmapItem = {
 };
 
 type Timeline = {
-  leftTitle: string;      // was “Tasks” — now editable
+  leftTitle: string;      // was "Tasks" — now editable
   startYear: number;
   startMonth: number;     // 0-11
   endYear: number;
   endMonth: number;       // 0-11
+  autoFit?: boolean;      // Auto-fit timeline to items' date range
 };
 
 /* ---------- Storage Keys ---------- */
@@ -76,7 +77,7 @@ const DEFAULT_STAGES: StageMeta[] = [
 ];
 
 const thisYear = new Date().getFullYear();
-const DEFAULT_TL: Timeline = { leftTitle: "Tasks", startYear: thisYear, startMonth: 0, endYear: thisYear, endMonth: 11 };
+const DEFAULT_TL: Timeline = { leftTitle: "Tasks", startYear: thisYear, startMonth: 0, endYear: thisYear, endMonth: 11, autoFit: true };
 
 /* ---------- Persistence ---------- */
 function load(): { items: RoadmapItem[]; lanes: LaneMeta[]; stages: StageMeta[]; tl: Timeline } {
@@ -105,7 +106,8 @@ function load(): { items: RoadmapItem[]; lanes: LaneMeta[]; stages: StageMeta[];
       }
       return it as RoadmapItem;
     });
-    const lanes = JSON.parse(localStorage.getItem(STORAGE_LANES) || "[]") as LaneMeta[];
+    const lanes = JSON.parse(localStorage.getItem(STORAGE_LANES) || "[]") as LaneMeta[];                    
+
     const stages = JSON.parse(localStorage.getItem(STORAGE_STAGES) || "[]") as StageMeta[];
     const tl = JSON.parse(localStorage.getItem(STORAGE_TL) || "null") as Timeline | null;
 
@@ -204,9 +206,9 @@ export default function RoadmapApp() {
 
   // Calculate dynamic timeline range based on items
   const optimalRange = useMemo(() => calculateOptimalTimelineRange(items), [items]);
-  
-  // Use dynamic timeline if we have items, otherwise use stored timeline for manual control
-  const effectiveTimeline = items.length > 0 ? {
+
+  // Use auto-fit timeline if enabled and we have items, otherwise use stored timeline for manual control
+  const effectiveTimeline = (tl.autoFit !== false && items.length > 0) ? {
     ...tl,
     startYear: optimalRange.startYear,
     startMonth: optimalRange.startMonth,
@@ -227,25 +229,32 @@ export default function RoadmapApp() {
   // Proportional lane heights based on number of items with improved sizing
   const calculateLaneHeight = useMemo(() => {
     const minHeight = 100; // Increased minimum height for better text visibility
-    const padding = 16; // Increased padding for better spacing
-    
+    const headerHeight = 20; // Lane header height
+    const headerPadding = 12; // Top padding for header
+    const headerBottomPadding = 4; // Bottom padding after header
+    const itemGap = 4; // Gap between items
+
     return (laneId: string) => {
       const laneItems = itemsByLane[laneId] || [];
       if (laneItems.length === 0) return minHeight;
-      
-      // Calculate total height needed for all items with their dynamic heights
-      let totalItemHeight = 12; // Start with initial offset to match item positioning
+
+      // Calculate total height needed: header area + items + gaps
+      const headerAreaHeight = headerPadding + headerHeight + headerBottomPadding; // 12 + 20 + 4 = 36px
+      let itemsHeight = 0;
+
       laneItems.forEach((item, index) => {
         const titleLength = item.title.length;
         const charsPerLine = Math.max(20, Math.min(30, 60 - titleLength * 0.1)); // Match BarPill logic
         const estimatedLines = Math.ceil(titleLength / charsPerLine);
         const actualLines = Math.min(estimatedLines, 3); // Max 3 lines to prevent overlap
         const itemHeight = Math.min(32 + (actualLines - 1) * 16, 64); // Match BarPill sizing
-        totalItemHeight += itemHeight;
-        if (index < laneItems.length - 1) totalItemHeight += 4; // Gap between items
+        itemsHeight += itemHeight;
+        if (index < laneItems.length - 1) itemsHeight += itemGap; // Gap between items
       });
-      
-      return Math.max(minHeight, totalItemHeight + padding);
+
+      // Total height = header area + items height + bottom padding
+      const totalHeight = headerAreaHeight + itemsHeight + 8; // Extra 8px bottom padding
+      return Math.max(minHeight, totalHeight);
     };
   }, [itemsByLane, visibleLanes]);
 
@@ -362,7 +371,15 @@ export default function RoadmapApp() {
         </Card>
 
         {/* Timeline */}
-        <div className="rounded-2xl border bg-white p-0 shadow-sm overflow-hidden">
+        <div className="rounded-2xl border bg-white p-0 shadow-sm overflow-hidden relative">
+          {tl.autoFit !== false && items.length > 0 && (
+            <div className="absolute top-2 right-2 z-10">
+              <div className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full border border-blue-200 flex items-center gap-1">
+                <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                Auto-fit Active
+              </div>
+            </div>
+          )}
           <QuarterHeader tl={effectiveTimeline} cols={cols} />
           <div className="grid grid-cols-[200px_1fr]">
             {/* Left: editable header title + lanes */}
@@ -375,13 +392,13 @@ export default function RoadmapApp() {
               {visibleLanes.map((lane, i) => {
                 const laneHeight = calculateLaneHeight(lane.id);
                 return (
-                  <div key={lane.id} className={`relative px-4 text-sm font-medium ${i !== 0 ? "border-t" : ""}`} style={{ height: `${laneHeight}px` }}>
-                    <div className="absolute top-3 left-4 flex items-center">
+                  <div key={lane.id} className={`relative text-sm font-medium ${i !== 0 ? "border-t" : ""}`} style={{ height: `${laneHeight}px`, paddingTop: '12px', paddingBottom: '4px', paddingLeft: '16px', paddingRight: '16px' }}>
+                    <div className="flex items-center" style={{ height: '20px' }}>
                       <span className="inline-flex items-center gap-2">
-                        <span className="h-4 w-1.5 rounded-full" style={{ background: lane.color }} />
-                        {lane.label}
+                        <span className="h-4 w-1.5 rounded-full flex-shrink-0" style={{ background: lane.color }} />
+                        <span className="truncate font-medium">{lane.label}</span>
                         {(itemsByLane[lane.id] || []).length > 1 && (
-                          <span className="text-xs text-slate-500 ml-2">({(itemsByLane[lane.id] || []).length} items)</span>
+                          <span className="text-xs text-slate-500 ml-2 flex-shrink-0">({(itemsByLane[lane.id] || []).length} items)</span>
                         )}
                       </span>
                     </div>
@@ -413,15 +430,16 @@ export default function RoadmapApp() {
                   <div key={lane.id} className={`timeline-grid relative grid overflow-hidden ${laneIdx !== 0 ? "border-t" : ""}`} style={{ gridTemplateColumns: gridTemplate, height: `${laneHeight}px` }}>
                     {Array.from({ length: cols }).map((_, i) => (
                       <div key={i} className="h-full border-l/20 border-l relative">
-                        <div className="absolute top-1 left-1 text-[10px] text-slate-400">
+                        <div className="absolute top-1 left-1 roadmap-text text-[10px] font-medium text-slate-500 bg-white/60 px-1 rounded-sm shadow-sm" style={{ textShadow: '0 1px 1px rgba(255,255,255,0.8)' }}>
                           {monthName(effectiveTimeline.startMonth + i)} {/* month label */}
                         </div>
                       </div>
                     ))}
                     {/* Items positioned with stacking for multiple items */}
                     {(itemsByLane[lane.id] || []).map((it, itemIdx) => {
-                      // Calculate cumulative position for this item - align with lane header at top-3 (12px)
-                      let cumulativeTop = 12; // Match lane header positioning
+                      // Calculate cumulative position for this item - align with lane header positioning
+                      // Start at 12px to match lane header top padding, plus 20px for header height, plus 4px gap
+                      let cumulativeTop = 12 + 20 + 4; // Match lane header positioning: 12px padding + 20px header height + 4px gap
                       for (let i = 0; i < itemIdx; i++) {
                         const prevItem = (itemsByLane[lane.id] || [])[i];
                         const prevTitleLength = prevItem.title.length;
@@ -536,38 +554,97 @@ function BarPill({ item, laneColor, colorClass, onEdit, onDelete, onResize, absS
   const itemAbsStart = toAbsWithDays(item.startYear, item.startMonth, item.startDay || 1);
   const itemAbsEnd = toAbsWithDays(item.endYear, item.endMonth, item.endDay || 1);
   const timelineAbsEnd = absStart + cols;
-  
+
   // Check if item is visible in current timeline range
   if (itemAbsEnd < absStart || itemAbsStart > timelineAbsEnd) return null;
-  
+
   // Calculate fractional grid positions for proportional placement
   const startOffset = Math.max(0, itemAbsStart - absStart);
   const endOffset = Math.min(cols, itemAbsEnd - absStart);
-  
+
+  // Calculate precise start date position within its month for better proportional placement
+  const startDateDay = item.startDay || 1;
+  const daysInStartMonth = daysInMonth(item.startYear, item.startMonth);
+  const startDateFraction = (startDateDay - 1) / daysInStartMonth; // 0-based fraction within month
+
+  // Calculate the month column where the start date should appear
+  const startMonthAbs = toAbs(item.startYear, item.startMonth);
+  const startMonthColumn = Math.max(0, Math.min(cols - 1, startMonthAbs - absStart));
+
+  // Calculate the exact position within the start month column
+  const startPositionInMonth = startMonthColumn + startDateFraction;
+
+  // Calculate precise end date position within its month for better proportional placement
+  const endDateDay = item.endDay || daysInMonth(item.endYear, item.endMonth);
+  const daysInEndMonth = daysInMonth(item.endYear, item.endMonth);
+  const endDateFraction = (endDateDay - 1) / daysInEndMonth; // 0-based fraction within month
+
+  // Calculate the month column where the end date should appear
+  const endMonthAbs = toAbs(item.endYear, item.endMonth);
+  const endMonthColumn = Math.max(0, Math.min(cols - 1, endMonthAbs - absStart));
+
+  // Calculate the exact position within the month column
+  const endPositionInMonth = endMonthColumn + endDateFraction;
+
+  // Calculate the actual duration in days for more accurate proportional sizing
+  const calculateDaysBetween = (startYear: number, startMonth: number, startDay: number, endYear: number, endMonth: number, endDay: number): number => {
+    const startDate = new Date(startYear, startMonth, startDay);
+    const endDate = new Date(endYear, endMonth, endDay);
+    const timeDiff = endDate.getTime() - startDate.getTime();
+    return Math.ceil(timeDiff / (1000 * 3600 * 24)); // Convert to days
+  };
+
+  const totalDays = calculateDaysBetween(item.startYear, item.startMonth, item.startDay || 1, item.endYear, item.endMonth, item.endDay || 1);
+
+  // Calculate total timeline duration in days for proportional scaling
+  const timelineStartYear = Math.floor(absStart / 12);
+  const timelineStartMonth = absStart % 12;
+  const timelineEndYear = Math.floor((absStart + cols) / 12);
+  const timelineEndMonth = (absStart + cols) % 12;
+  const timelineTotalDays = calculateDaysBetween(timelineStartYear, timelineStartMonth, 1, timelineEndYear, timelineEndMonth, daysInMonth(timelineEndYear, timelineEndMonth));
+
   // Convert to CSS grid column positions (1-based)
   const gridStart = Math.floor(startOffset) + 1;
   const gridEnd = Math.ceil(endOffset) + 1;
-  
+
   // Calculate precise positioning within the grid cells for proportional dates
   const startFraction = startOffset % 1;
   const totalSpan = endOffset - startOffset;
   const gridSpan = gridEnd - gridStart;
-  
-  // Calculate dynamic height based on text length with conservative sizing to prevent overlap
+
+  // Calculate dynamic height and width based on both text length and task duration
   const titleLength = item.title.length;
+
+  // Calculate width based on actual day duration for more accurate proportions
+  const timelineWidthPercent = (totalDays / timelineTotalDays) * 100;
+  const gridBasedWidth = gridSpan > 0 ? (totalSpan / gridSpan) * 100 : timelineWidthPercent;
+
+  // Determine minimum width based on content length to ensure readability
+  const minWidthForContent = Math.max(60, titleLength * 2); // At least 60px, more for longer titles
+  const minWidthPercent = (minWidthForContent / (gridSpan > 0 ? gridSpan * 100 : 100)) * 100; // Convert to percentage of available space
+
+  const adjustedWidth = Math.max(
+    Math.min(timelineWidthPercent, gridBasedWidth),
+    Math.min(minWidthPercent, 100) // Cap minimum at 100% to prevent overflow
+  );
   const charsPerLine = Math.max(20, Math.min(30, 60 - titleLength * 0.1)); // More conservative chars per line
   const estimatedLines = Math.ceil(titleLength / charsPerLine);
   const maxLines = 3; // Limit to 3 lines to prevent overlap
   const actualLines = Math.min(estimatedLines, maxLines);
-  const minHeight = 32; // Slightly larger minimum height for better text visibility
-  const lineHeight = 16; // Increased line height for better readability
-  const barHeight = Math.min(minHeight + (actualLines - 1) * lineHeight, 64); // Increased max height but capped
-  
-  const style: React.CSSProperties = { 
+
+  // Base height calculation from text content
+  const textBasedHeight = 32 + (actualLines - 1) * 16;
+
+  // Duration-based height adjustment (longer tasks get slightly taller for better visibility)
+  const durationBonus = Math.min(totalDays * 0.5, 16); // Max 16px bonus for very long tasks
+
+  const barHeight = Math.min(textBasedHeight + durationBonus, 64); // Cap at 64px
+
+  const style: React.CSSProperties = {
     gridColumn: `${gridStart} / ${gridEnd}`,
     // Add sub-grid positioning for proportional date placement
     marginLeft: `${startFraction * 100}%`,
-    width: gridSpan > 0 ? `${(totalSpan / gridSpan) * 100}%` : '100%',
+    width: `${adjustedWidth}%`,
     // Vertical stacking for multiple items in same lane - ensure proper containment
     position: 'absolute',
     top: `${verticalOffset}px`, // Use calculated cumulative offset
@@ -579,9 +656,19 @@ function BarPill({ item, laneColor, colorClass, onEdit, onDelete, onResize, absS
   
   const progress = typeof item.progress === "number" ? clamp(item.progress, 0, 100) : undefined;
   
-  // Determine optimal font size based on content and available space
-  const fontSize = titleLength > 40 ? '10px' : titleLength > 20 ? '11px' : '12px';
-  const lineHeightRatio = titleLength > 40 ? '1.1' : '1.2';
+  // Determine optimal font size based on content, available space, and task duration
+  // Base font size is more generous for better readability
+  const baseFontSize = titleLength > 50 ? 11 : titleLength > 30 ? 12 : titleLength > 15 ? 13 : 14;
+
+  // Adjust font size based on task width - less aggressive reduction for better readability
+  const widthAdjustment = adjustedWidth < 20 ? -1 : adjustedWidth < 30 ? -0.5 : 0;
+  const fontSize = Math.max(10, baseFontSize + widthAdjustment) + 'px'; // Minimum 10px for better readability
+
+  // Better line height for improved readability
+  const lineHeightRatio = titleLength > 40 ? '1.3' : '1.4';
+
+  // Font weight adjustment for better contrast
+  const fontWeight = adjustedWidth < 25 ? 600 : 500; // Slightly bolder for narrow tasks
   
   // Handle mouse events for dragging
   const handleMouseDown = (edge: 'start' | 'end') => (e: React.MouseEvent) => {
@@ -632,8 +719,59 @@ function BarPill({ item, laneColor, colorClass, onEdit, onDelete, onResize, absS
     }
   }, [isDragging, dragStartX, originalStartDate, originalEndDate]);
 
+  // Format dates for display
+  const formatDate = (year: number, month: number, day: number) => {
+    const date = new Date(year, month, day);
+    const currentYear = new Date().getFullYear();
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: year !== currentYear ? 'numeric' : undefined
+    });
+  };
+
+  // Get month name for better context
+  const getMonthName = (month: number) => {
+    return MONTHS[month]?.label || 'Unknown';
+  };
+
+  const startDateStr = formatDate(item.startYear, item.startMonth, item.startDay || 1);
+  const endDateStr = formatDate(item.endYear, item.endMonth, item.endDay || daysInMonth(item.endYear, item.endMonth));
+
   return (
-    <motion.div layout style={{...style, height: `${barHeight}px`}} className="relative">
+    <motion.div
+      layout
+      style={{...style, height: `${barHeight}px`}}
+      className="relative group/task"
+    >
+      {/* Enhanced tooltip */}
+      <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 z-40 opacity-0 group-hover/task:opacity-100 transition-opacity duration-200 pointer-events-none">
+        <div className="tooltip-container bg-slate-900 text-white text-sm px-3 py-2 rounded-lg shadow-xl border border-slate-700 whitespace-normal">
+          <div className="font-semibold text-white mb-1 leading-tight">{item.title}</div>
+          {item.description && (
+            <div className="text-slate-300 text-xs mb-2 leading-relaxed">{item.description}</div>
+          )}
+          <div className="text-xs space-y-1">
+            <div className="flex justify-between items-center">
+              <span className="text-slate-400">Duration:</span>
+              <span className="text-white font-medium ml-2">{startDateStr} - {endDateStr}</span>
+            </div>
+            {item.owner && (
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400">Owner:</span>
+                <span className="text-white ml-2">{item.owner}</span>
+              </div>
+            )}
+            {item.progress !== undefined && (
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400">Progress:</span>
+                <span className="text-white ml-2">{item.progress}%</span>
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-slate-900 mx-auto"></div>
+      </div>
       {/* Left resize handle */}
       <div
         className="absolute left-0 top-0 w-1 h-full cursor-ew-resize z-20 hover:bg-white/30 flex items-center justify-center group"
@@ -651,25 +789,79 @@ function BarPill({ item, laneColor, colorClass, onEdit, onDelete, onResize, absS
       </div>
 
       <div className={`group h-full rounded-md ${colorClass} text-white shadow-sm flex items-center pl-0 pr-1 relative overflow-hidden ${isDragging ? 'opacity-80' : ''}`}>
+        {/* Start date indicator */}
+        {startOffset >= 0 && (
+          <div
+            className="absolute -top-6 z-30 opacity-0 group-hover/task:opacity-100 transition-opacity duration-200"
+            style={{
+              left: startPositionInMonth >= 0 && startPositionInMonth <= cols
+                ? `${(startPositionInMonth / cols) * 100}%`
+                : startPositionInMonth < 0 ? '0%' : '100%',
+              transform: startPositionInMonth >= 0 && startPositionInMonth <= cols
+                ? 'translateX(-50%)'
+                : startPositionInMonth < 0 ? 'translateX(0%)' : 'translateX(-100%)'
+            }}
+          >
+            <div className={`bg-slate-800 text-white text-xs px-2 py-1 rounded shadow-lg whitespace-nowrap border border-slate-600 ${startPositionInMonth < 0 || startPositionInMonth > cols ? 'opacity-60' : ''}`}>
+              <div className="font-medium">{startDateStr}</div>
+              <div className="text-slate-300 text-[10px]">
+                Start • {getMonthName(item.startMonth)}
+                {(startPositionInMonth < 0 || startPositionInMonth > cols) && (
+                  <span className="text-amber-300 ml-1">⤴</span>
+                )}
+              </div>
+            </div>
+            <div className="w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-slate-800 mx-auto"></div>
+          </div>
+        )}
+
+        {/* End date indicator */}
+        {endOffset > 0 && (
+          <div
+            className="absolute -top-6 z-30 opacity-0 group-hover/task:opacity-100 transition-opacity duration-200"
+            style={{
+              left: endPositionInMonth >= 0 && endPositionInMonth <= cols
+                ? `${(endPositionInMonth / cols) * 100}%`
+                : endPositionInMonth < 0 ? '0%' : '100%',
+              transform: endPositionInMonth >= 0 && endPositionInMonth <= cols
+                ? 'translateX(-50%)'
+                : endPositionInMonth < 0 ? 'translateX(0%)' : 'translateX(-100%)'
+            }}
+          >
+            <div className={`bg-slate-800 text-white text-xs px-2 py-1 rounded shadow-lg whitespace-nowrap border border-slate-600 ${endPositionInMonth < 0 || endPositionInMonth > cols ? 'opacity-60' : ''}`}>
+              <div className="font-medium">{endDateStr}</div>
+              <div className="text-slate-300 text-[10px]">
+                End • {getMonthName(item.endMonth)}
+                {(endPositionInMonth < 0 || endPositionInMonth > cols) && (
+                  <span className="text-amber-300 ml-1">⤴</span>
+                )}
+              </div>
+            </div>
+            <div className="w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-slate-800 mx-auto"></div>
+          </div>
+        )}
         <span className="h-full w-2 rounded-l-md shrink-0" style={{ background: laneColor }} />
         <div className="ml-2 flex-1 flex items-center justify-between min-w-0 h-full">
-          <span 
-            className="font-medium leading-tight py-1 break-words hyphens-auto flex-1 pr-1 overflow-hidden" 
-            style={{ 
-              wordBreak: 'break-word', 
+          <span
+            className="roadmap-text leading-tight py-1 break-words hyphens-auto flex-1 pr-1 overflow-hidden text-white"
+            style={{
+              wordBreak: 'break-word',
               lineHeight: lineHeightRatio,
               fontSize: fontSize,
+              fontWeight: fontWeight,
               display: '-webkit-box',
               WebkitLineClamp: actualLines, // Use actualLines instead of estimatedLines
               WebkitBoxOrient: 'vertical',
               overflow: 'hidden',
-              textOverflow: 'ellipsis'
+              textOverflow: 'ellipsis',
+              textShadow: '0 1px 2px rgba(0,0,0,0.3)', // Add text shadow for better contrast
+              WebkitTextStroke: '0.3px rgba(0,0,0,0.2)' // Subtle text stroke for better definition
             }}
           >
             {item.title}
           </span>
           <div className="flex items-center gap-1 shrink-0 self-start mt-1">
-            {typeof progress === "number" && <span className="text-[9px] font-semibold opacity-90 bg-black/20 px-1 rounded">{progress}%</span>}
+            {typeof progress === "number" && <span className="text-[10px] font-bold opacity-95 bg-black/30 px-1.5 py-0.5 rounded text-white" style={{ textShadow: '0 1px 1px rgba(0,0,0,0.5)' }}>{progress}%</span>}
             <div className="hidden gap-0.5 group-hover:flex">
               <Button size="icon" variant="ghost" className="h-4 w-4 text-white/90 p-0" onClick={onEdit}>
                 <Edit2 className="h-2.5 w-2.5" />
@@ -689,8 +881,8 @@ function BarPill({ item, laneColor, colorClass, onEdit, onDelete, onResize, absS
         const pct = (msOffset - startOffset) / Math.max(0.1, endOffset - startOffset);
         return (
           <div key={i} className="absolute -top-5" style={{ left: `calc(${pct * 100}% - 6px)` }}>
-            <Flag className="h-3.5 w-3.5 text-slate-700" />
-            <div className="text-[10px] text-slate-600 whitespace-nowrap">{ms.label}</div>
+            <Flag className="h-3.5 w-3.5 text-slate-700 drop-shadow-sm" />
+            <div className="roadmap-text text-[10px] font-medium text-slate-700 whitespace-nowrap bg-white/80 px-1 rounded-sm shadow-sm" style={{ textShadow: '0 1px 1px rgba(255,255,255,0.8)' }}>{ms.label}</div>
           </div>
         );
       })}
@@ -705,7 +897,9 @@ function TimelineControls({ tl, onChange }: { tl: Timeline; onChange: (patch: Pa
   const [sm, setSm] = useState(tl.startMonth);
   const [ey, setEy] = useState(tl.endYear);
   const [em, setEm] = useState(tl.endMonth);
+  const [autoFit, setAutoFit] = useState(tl.autoFit !== false);
   useEffect(() => { onChange({ leftTitle }); }, [leftTitle]);
+  useEffect(() => { onChange({ autoFit }); }, [autoFit]);
   useEffect(() => {
     const a = toAbs(sy, sm), b = toAbs(ey, em);
     if (a <= b) onChange({ startYear: sy, startMonth: sm, endYear: ey, endMonth: em });
@@ -728,9 +922,33 @@ function TimelineControls({ tl, onChange }: { tl: Timeline; onChange: (patch: Pa
       <div className="space-y-1">
         <Label className="text-sm text-slate-600">Date Range</Label>
         <div className="flex items-center gap-2">
-          <Input type="month" value={startValue} onChange={onStartChange} className="h-8" />
+          <Input
+            type="month"
+            value={startValue}
+            onChange={onStartChange}
+            className="h-8"
+            disabled={autoFit}
+          />
           <span className="text-slate-500">→</span>
-          <Input type="month" value={endValue} onChange={onEndChange} className="h-8" />
+          <Input
+            type="month"
+            value={endValue}
+            onChange={onEndChange}
+            className="h-8"
+            disabled={autoFit}
+          />
+        </div>
+        <div className="flex items-center gap-2 mt-2">
+          <input
+            type="checkbox"
+            id="autoFit"
+            checked={autoFit}
+            onChange={(e) => setAutoFit(e.target.checked)}
+            className="rounded"
+          />
+          <Label htmlFor="autoFit" className="text-sm text-slate-600 cursor-pointer">
+            Auto-fit to tasks {autoFit && <span className="text-xs text-blue-600 font-medium">(Active)</span>}
+          </Label>
         </div>
       </div>
     </div>
