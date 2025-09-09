@@ -615,18 +615,17 @@ function BarPill({ item, laneColor, colorClass, onEdit, onDelete, onResize, absS
   // Calculate dynamic height and width based on both text length and task duration
   const titleLength = item.title.length;
 
-  // Calculate width based on actual day duration for more accurate proportions
-  const timelineWidthPercent = (totalDays / timelineTotalDays) * 100;
-  const gridBasedWidth = gridSpan > 0 ? (totalSpan / gridSpan) * 100 : timelineWidthPercent;
+  // Width: use exact fractional month span so bar ends in correct month
+  // totalSpan is (endOffset - startOffset) in months (can be fractional)
+  // gridSpan is the number of grid columns spanned. The visible width in percent of the spanned columns is:
+  // (totalSpan / gridSpan) * 100. This ensures the bar end aligns with the end date month.
+  const gridBasedWidth = gridSpan > 0 ? (totalSpan / gridSpan) * 100 : 0;
 
   // Determine minimum width based on content length to ensure readability
   const minWidthForContent = Math.max(60, titleLength * 2); // At least 60px, more for longer titles
   const minWidthPercent = (minWidthForContent / (gridSpan > 0 ? gridSpan * 100 : 100)) * 100; // Convert to percentage of available space
 
-  const adjustedWidth = Math.max(
-    Math.min(timelineWidthPercent, gridBasedWidth),
-    Math.min(minWidthPercent, 100) // Cap minimum at 100% to prevent overflow
-  );
+  const adjustedWidth = Math.max(gridBasedWidth, Math.min(minWidthPercent, 100));
   const charsPerLine = Math.max(20, Math.min(30, 60 - titleLength * 0.1)); // More conservative chars per line
   const estimatedLines = Math.ceil(titleLength / charsPerLine);
   const maxLines = 3; // Limit to 3 lines to prevent overlap
