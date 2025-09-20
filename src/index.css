@@ -1,0 +1,34 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+/* Improve text rendering and readability */
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Ensure better text contrast and rendering */
+.roadmap-text {
+  font-feature-settings: "kern" 1, "liga" 1;
+  font-variant-ligatures: common-ligatures;
+}
+
+/* Tooltip positioning improvements */
+.tooltip-container {
+  max-width: min(300px, 90vw);
+}
+
+/* Ensure tooltips stay within viewport */
+@media (max-width: 640px) {
+  .tooltip-container {
+    max-width: calc(100vw - 2rem);
+  }
+}
