@@ -1,0 +1,31 @@
+{
+  "name": "product-roadmap",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "single": "vite build",
+    "preview": "vite preview",
+    "verify:single": "node -e \"const fs=require('fs');const p='dist';if(!fs.existsSync(p)){console.error('No dist folder. Run npm run single first.');process.exit(1)}const files=fs.readdirSync(p).filter(x=>x!=='index.html');if(files.length){console.error('Non-single-file assets found:',files);process.exit(1)}console.log('OK: single-file build at dist/index.html');\""
+  },
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "framer-motion": "^11.3.31",
+    "lucide-react": "^0.452.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.5",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.41",
+    "tailwindcss": "^3.4.10",
+    "typescript": "^5.5.4",
+    "vite": "^7.1.1",
+    "vite-plugin-singlefile": "^2.0.1"
+  }
+}
