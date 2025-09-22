@@ -649,29 +649,19 @@ function BarPill({ item, laneColor, colorClass, onEdit, onDelete, onResize, absS
   const timelineEndMonth = (absStart + cols) % 12;
   const timelineTotalDays = calculateDaysBetween(timelineStartYear, timelineStartMonth, 1, timelineEndYear, timelineEndMonth, daysInMonth(timelineEndYear, timelineEndMonth));
 
-  // Convert to CSS grid column positions (1-based)
-  const gridStart = Math.floor(startOffset) + 1;
-  const gridEnd = Math.ceil(endOffset) + 1;
-
-  // Calculate precise positioning within the grid cells for proportional dates
-  const startFraction = startOffset % 1;
-  const totalSpan = endOffset - startOffset;
-  const gridSpan = gridEnd - gridStart;
+  // Calculate absolute proportional positioning across the entire lane width
+  const totalSpan = endOffset - startOffset; // in months (can be fractional)
+  const leftPct = (Math.max(0, startOffset) / cols) * 100;
+  const widthPct = (Math.max(0, totalSpan) / cols) * 100;
 
   // Calculate dynamic height and width based on both text length and task duration
   const titleLength = item.title.length;
 
-  // Width: use exact fractional month span so bar ends in correct month
-  // totalSpan is (endOffset - startOffset) in months (can be fractional)
-  // gridSpan is the number of grid columns spanned. The visible width in percent of the spanned columns is:
-  // (totalSpan / gridSpan) * 100. This ensures the bar end aligns with the end date month.
-  const gridBasedWidth = gridSpan > 0 ? (totalSpan / gridSpan) * 100 : 0;
+  // Width: exact fractional month span relative to entire timeline
+  const gridBasedWidth = widthPct;
 
-  // Determine minimum width based on content length to ensure readability
-  const minWidthForContent = Math.max(60, titleLength * 2); // At least 60px, more for longer titles
-  const minWidthPercent = (minWidthForContent / (gridSpan > 0 ? gridSpan * 100 : 100)) * 100; // Convert to percentage of available space
-
-  const adjustedWidth = Math.max(gridBasedWidth, Math.min(minWidthPercent, 100));
+  // Purely proportional width based on exact fractional month span
+  const adjustedWidth = Math.max(0, Math.min(gridBasedWidth, 100));
   const charsPerLine = Math.max(20, Math.min(30, 60 - titleLength * 0.1)); // More conservative chars per line
   const estimatedLines = Math.ceil(titleLength / charsPerLine);
   const maxLines = 3; // Limit to 3 lines to prevent overlap
@@ -686,9 +676,8 @@ function BarPill({ item, laneColor, colorClass, onEdit, onDelete, onResize, absS
   const barHeight = rowHeight !== undefined ? rowHeight : Math.min(textBasedHeight + durationBonus, 64); // Fixed when provided
 
   const style: React.CSSProperties = {
-    gridColumn: `${gridStart} / ${gridEnd}`,
-    // Add sub-grid positioning for proportional date placement
-    marginLeft: `${startFraction * 100}%`,
+    // Absolute proportional positioning relative to total timeline width
+    left: `${leftPct}%`,
     width: `${adjustedWidth}%`,
     // Vertical stacking for multiple items in same lane - ensure proper containment
     position: 'absolute',
@@ -706,7 +695,7 @@ function BarPill({ item, laneColor, colorClass, onEdit, onDelete, onResize, absS
   const baseFontSize = titleLength > 50 ? 11 : titleLength > 30 ? 12 : titleLength > 15 ? 13 : 14;
 
   // Adjust font size based on task width - less aggressive reduction for better readability
-  const widthAdjustment = adjustedWidth < 20 ? -1 : adjustedWidth < 30 ? -0.5 : 0;
+  const widthAdjustment = 0; // keep font based on content only; width no longer forces min size
   const fontSize = Math.max(10, baseFontSize + widthAdjustment) + 'px'; // Minimum 10px for better readability
 
   // Better line height for improved readability

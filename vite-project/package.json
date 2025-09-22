@@ -8,6 +8,7 @@
     "build": "vite build",
     "single": "vite build",
     "preview": "vite preview",
+    "test": "node ./scripts/test-positioning.mjs",
     "verify:single": "node -e \"const fs=require('fs');const p='dist';if(!fs.existsSync(p)){console.error('No dist folder. Run npm run single first.');process.exit(1)}const files=fs.readdirSync(p).filter(x=>x!=='index.html');if(files.length){console.error('Non-single-file assets found:',files);process.exit(1)}console.log('OK: single-file build at dist/index.html');\""
   },
   "dependencies": {
