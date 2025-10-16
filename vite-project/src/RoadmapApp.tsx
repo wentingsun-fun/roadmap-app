@@ -1,9 +1,5 @@
-// TODO: Paste your full RoadmapApp.tsx here (the version with editable time range, stages, lanes, and left header).
-// After pasting, save and run:  npm run dev
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-// Removed external uuid dependency; use crypto.randomUUID instead
-const uuid = () => (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2));
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -11,7 +7,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Trash2, Plus, Download, Upload, Calendar, Edit2, Flag } from "lucide-react";
+import { Trash2, Plus, Download, Upload, Calendar, Edit2, Flag, FileText } from "lucide-react";
+
+const uuid = () => (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2));
 
 /* ---------- Time Labels ---------- */
 const MONTHS = [
@@ -44,6 +42,7 @@ type RoadmapItem = {
   endDay: number;      // 1-31
   progress?: number;   // 0-100
   milestones?: { label: string; month: number }[]; // milestones still month-based for simplicity
+  notes?: string;      // Detailed notes for the task
 };
 
 type Timeline = {
@@ -64,16 +63,16 @@ const STORAGE_TL = "roadmap.timeline.v2";
 
 /* ---------- Defaults ---------- */
 const DEFAULT_LANES: LaneMeta[] = [
-  { id: "onboarding", label: "Onboarding", color: "#a855f7" },
+  { id: "onboarding", label: "Onboarding", color: "#0d9488" },
   { id: "messaging", label: "Messaging", color: "#06b6d4" },
   { id: "analytics", label: "Analytics", color: "#22c55e" },
-  { id: "admin", label: "Admin Console", color: "#f97316" },
+  { id: "admin", label: "Admin Console", color: "#0891b2" },
 ];
 
 const DEFAULT_STAGES: StageMeta[] = [
-  { id: "planned",      label: "Planned",       colorClass: "bg-purple-500" },
+  { id: "planned",      label: "Planned",       colorClass: "bg-slate-500" },
   { id: "in-progress",  label: "In Progress",   colorClass: "bg-cyan-500" },
-  { id: "under-review", label: "Under Review",  colorClass: "bg-amber-500" },
+  { id: "under-review", label: "Under Review",  colorClass: "bg-teal-500" },
   { id: "completed",    label: "Completed",     colorClass: "bg-emerald-500" },
 ];
 
@@ -361,6 +360,49 @@ export default function RoadmapApp() {
     r.readAsText(f);
   }
 
+  // Merge multiple roadmap JSON payloads into a single longer-term roadmap
+  function mergeRoadmaps(payloads: { items: RoadmapItem[]; lanes: LaneMeta[]; stages: StageMeta[]; tl: Timeline }[]) {
+    // Merge lanes by id (first occurrence wins)
+    const laneMap = new Map<string, LaneMeta>();
+    for (const p of payloads) for (const l of p.lanes) if (!laneMap.has(l.id)) laneMap.set(l.id, l);
+    const mergedLanes = Array.from(laneMap.values());
+
+    // Merge stages by id (first occurrence wins)
+    const stageMap = new Map<string, StageMeta>();
+    for (const p of payloads) for (const s of p.stages) if (!stageMap.has(s.id)) stageMap.set(s.id, s);
+    const mergedStages = Array.from(stageMap.values());
+
+    // Merge items; if duplicate id occurs with different content, assign a new id
+    const itemMap = new Map<string, RoadmapItem>();
+    for (const p of payloads) {
+      for (const it of p.items) {
+        const existing = itemMap.get(it.id);
+        if (!existing) { itemMap.set(it.id, it); continue; }
+        const changed = JSON.stringify(existing) !== JSON.stringify(it);
+        if (changed) { itemMap.set(uuid(), { ...it, id: uuid() }); } // keep both with new id
+      }
+    }
+    const mergedItems = Array.from(itemMap.values());
+
+    // Compute a combined timeline that auto-fits all items
+    const range = calculateOptimalTimelineRange(mergedItems);
+    const mergedTl: Timeline = { leftTitle: tl.leftTitle || 'Tasks', autoFit: true, ...range };
+
+    setState({ items: mergedItems, lanes: mergedLanes, stages: mergedStages, tl: mergedTl });
+  }
+
+  function importMergeJSONs(evt: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(evt.target.files || []);
+    if (!files.length) return;
+    Promise.all(files.map(f => f.text().then(txt => ({ name: f.name, json: JSON.parse(txt) }))))
+      .then(list => {
+        const payloads = list.map(({ json }) => json).filter((obj: any) => obj && Array.isArray(obj.items) && Array.isArray(obj.lanes) && Array.isArray(obj.stages) && obj.tl);
+        if (!payloads.length) { alert('No valid roadmap JSON files selected.'); return; }
+        mergeRoadmaps(payloads);
+      })
+      .catch(() => alert('Failed to parse one or more files.'));
+  }
+
   // expose zoom to DOM for quick checks
   useEffect(() => {
     document.body.setAttribute('data-zoom', effectiveTimeline.zoom || 'month');
@@ -368,16 +410,18 @@ export default function RoadmapApp() {
   }, [effectiveTimeline.zoom]);
 
   return (
-    <div className="min-h-screen w-full bg-white p-6">
+    <div className="min-h-screen w-full bg-background text-foreground p-6">
       <div className="mx-auto max-w-7xl space-y-6">
         {/* Header */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h1 className="text-3xl font-semibold tracking-tight">Roadmap</h1>
-            <p className="text-slate-600">Editable time range, stages, lanes, and header title.</p>
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h1 className="text-3xl font-semibold tracking-tight">Roadmap</h1>
+              <p className="text-muted-foreground">Editable time range, stages, lanes, and header title.</p>
+            </div>
+            <TimelineControls tl={tl} onChange={setTimeline} />
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <TimelineControls tl={tl} onChange={setTimeline} />
             <Dialog open={laneMgrOpen} onOpenChange={setLaneMgrOpen}>
               <DialogTrigger asChild><Button variant="outline" className="gap-2"><Edit2 className="h-4 w-4" /> Edit Lanes</Button></DialogTrigger>
               <DialogContent className="sm:max-w-lg">
@@ -392,9 +436,13 @@ export default function RoadmapApp() {
                 <StageManager stages={stages} onAdd={addStage} onRename={renameStage} onRecolor={recolorStage} onDelete={deleteStage} onReorder={reorderStages} />
               </DialogContent>
             </Dialog>
-            <label className="inline-flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+            <label className="inline-flex items-center gap-2 text-sm text-muted-foreground cursor-pointer">
               <Upload className="h-4 w-4" /> Import JSON
               <input type="file" accept="application/json" className="hidden" onChange={importJSON} />
+            </label>
+            <label className="inline-flex items-center gap-2 text-sm text-muted-foreground cursor-pointer">
+              <Upload className="h-4 w-4" /> Merge JSONs
+              <input type="file" accept="application/json" multiple className="hidden" onChange={importMergeJSONs} />
             </label>
             <Button variant="secondary" onClick={exportJSON} className="gap-2"><Download className="h-4 w-4" /> Export JSON</Button>
             <Dialog open={open} onOpenChange={setOpen}>
@@ -420,34 +468,39 @@ export default function RoadmapApp() {
         </Card>
 
         {/* Timeline */}
-        <div className="rounded-2xl border bg-white p-0 shadow-sm overflow-hidden relative">
+        <div className="rounded-2xl border bg-card text-card-foreground p-0 shadow-sm overflow-hidden relative">
           {tl.autoFit !== false && items.length > 0 && (
             <div className="absolute top-2 right-2 z-10">
-              <div className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full border border-blue-200 flex items-center gap-1">
-                <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+              <div className="bg-primary/10 text-primary text-xs px-2 py-1 rounded-full border border-primary/20 flex items-center gap-1">
+                <div className="w-2 h-2 bg-primary rounded-full animate-pulse"></div>
                 Auto-fit Active
               </div>
             </div>
           )}
-          <QuarterHeader tl={effectiveTimeline} cols={cols} />
+          <QuarterHeader tl={effectiveTimeline} cols={cols} leftTitle={tl.leftTitle} />
           <div className="grid grid-cols-[240px_1fr]">
-            {/* Left: editable header title + lanes */}
-            <div className="border-t">
-              {/* Replaced editable Left Header Title input with static title display */}
-              {/* Renamed to Title */}
-              <div className="px-4 py-3 border-b">
-                <div className="text-xs font-semibold tracking-wide text-slate-600 truncate">{tl.leftTitle}</div>
-              </div>
+            {/* Left: lanes */}
+            <div>
               {visibleLanes.map((lane, i) => {
                 const laneHeight = getLaneHeight(lane.id);
                 return (
-                  <div key={lane.id} className={`relative text-sm font-medium ${i !== 0 ? "border-t" : ""}`} style={{ height: `${laneHeight}px`, paddingTop: '12px', paddingBottom: '4px', paddingLeft: '16px', paddingRight: '16px' }}>
-                    <div className="flex items-center" style={{ height: '20px' }}>
+                  <div
+                    key={lane.id}
+                    className={`relative text-sm font-medium ${i !== 0 ? "border-t" : ""}`}
+                    style={{
+                      height: `${laneHeight}px`,
+                      paddingTop: `${HEADER_TOP}px`,
+                      paddingBottom: `${HEADER_GAP}px`,
+                      paddingLeft: '16px',
+                      paddingRight: '16px',
+                    }}
+                  >
+                    <div className="flex items-center" style={{ height: `${HEADER_LINE}px` }}>
                       <span className="inline-flex items-center gap-2">
                         <span className="h-4 w-1.5 rounded-full flex-shrink-0" style={{ background: lane.color }} />
-                        <span className="truncate font-medium">{lane.label}</span>
+                        <span className="truncate font-semibold">{lane.label}</span>
                         {(itemsByLane[lane.id] || []).length > 1 && (
-                          <span className="text-xs text-slate-500 ml-2 flex-shrink-0">({(itemsByLane[lane.id] || []).length} items)</span>
+                          <span className="text-xs text-muted-foreground ml-2 flex-shrink-0">({(itemsByLane[lane.id] || []).length} items)</span>
                         )}
                       </span>
                     </div>
@@ -455,11 +508,11 @@ export default function RoadmapApp() {
                 );
               })}
               {shouldCollapse && (
-                <div className="border-t px-4 py-3 bg-slate-50">
+                <div className="border-t px-4 py-3 bg-muted">
                   <Button 
                     variant="ghost" 
                     onClick={() => setIsExpanded(!isExpanded)}
-                    className="h-8 text-xs text-slate-600 hover:text-slate-900"
+                    className="h-8 text-xs text-muted-foreground hover:text-foreground"
                   >
                     {isExpanded ? (
                       <>▲ Show Less</>
@@ -476,11 +529,15 @@ export default function RoadmapApp() {
               {visibleLanes.map((lane, laneIdx) => {
                 const laneHeight = getLaneHeight(lane.id);
                 return (
-                  <div key={lane.id} className={`timeline-grid relative grid overflow-hidden ${laneIdx !== 0 ? "border-t" : ""}`} style={{ gridTemplateColumns: gridTemplate, height: `${laneHeight}px`, backgroundImage: gridBackground }}>
+                  <div
+                    key={lane.id}
+                    className={`timeline-grid relative grid overflow-hidden ${laneIdx !== 0 ? "border-t" : ""}`}
+                    style={{ gridTemplateColumns: gridTemplate, height: `${laneHeight}px`, paddingTop: `${HEADER_BASELINE}px`, backgroundImage: gridBackground }}
+                  >
                     {/* Items positioned with stacking for multiple items */}
                     {(itemsByLane[lane.id] || []).map((it, itemIdx) => {
                       const rowIndex = laneLayouts[lane.id]?.placements[it.id] ?? 0;
-                      const cumulativeTop = HEADER_BASELINE + rowIndex * (ROW_HEIGHT + ROW_GAP);
+                      const cumulativeTop = rowIndex * (ROW_HEIGHT + ROW_GAP);
                       return (
                         <BarPill
                           key={it.id}
@@ -515,11 +572,11 @@ export default function RoadmapApp() {
                 );
               })}
               {shouldCollapse && (
-                <div className={`border-t bg-slate-50 ${isExpanded ? 'hidden' : 'flex'} items-center justify-center`} style={{ height: "3rem" }}>
+                <div className={`border-t bg-muted ${isExpanded ? 'hidden' : 'flex'} items-center justify-center`} style={{ height: "3rem" }}>
                   <Button 
                     variant="ghost" 
                     onClick={() => setIsExpanded(true)}
-                    className="h-8 text-xs text-slate-500 hover:text-slate-700"
+                    className="h-8 text-xs text-muted-foreground hover:text-foreground"
                   >
                     ▼ Show {hiddenCount} more row{hiddenCount !== 1 ? 's' : ''}
                   </Button>
@@ -551,7 +608,7 @@ export default function RoadmapApp() {
 }
 
 /* ---------- Header Bands (quarters across range) ---------- */
-function QuarterHeader({ tl, cols }: { tl: Timeline; cols: number }) {
+function QuarterHeader({ tl, cols, leftTitle }: { tl: Timeline; cols: number; leftTitle: string }) {
   const bands: { label: string; span: number }[] = [];
   let monthAbs = toAbs(tl.startYear, tl.startMonth);
   for (let i = 0; i < cols;) {
@@ -563,27 +620,33 @@ function QuarterHeader({ tl, cols }: { tl: Timeline; cols: number }) {
     i += span; monthAbs += span;
   }
   return (
-    <div className="sticky top-0 z-20 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80">
+    <div className="sticky top-0 z-20 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
       <div className="grid grid-cols-[240px_1fr] border-b">
-        <div className="px-4 py-2 text-[11px] font-semibold tracking-wide text-slate-500">&nbsp;</div>
+        <div className="px-4 py-2 text-[11px] font-semibold tracking-wide text-muted-foreground">&nbsp;</div>
         <div className="grid text-xs font-semibold" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
           {bands.map((b, idx) => (
             <div key={idx} className="relative text-center col-span-full" style={{ gridColumn: `span ${b.span} / span ${b.span}` }}>
-              <div className="py-2" style={{ color: ["#7c3aed", "#0ea5e9", "#10b981", "#f97316"][idx % 4] }}>{b.label}</div>
-              <div className={`absolute inset-0 -z-10 ${idx % 2 === 0 ? "bg-slate-50" : "bg-white"}`}></div>
+              <div className="py-2" style={{ color: ["#0d9488", "#06b6d4", "#0891b2", "#14b8a6"][idx % 4] }}>{b.label}</div>
+              <div className={`absolute inset-0 -z-10 ${idx % 2 === 0 ? "bg-muted" : "bg-background"}`}></div>
             </div>
           ))}
         </div>
       </div>
       <div className="grid grid-cols-[240px_1fr] border-b">
-        <div className="px-4 py-2 text-[11px] font-medium text-slate-500">Month</div>
-        <div className="grid text-[11px] text-slate-600" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
+        <div className="px-4 py-2 text-[11px] font-medium text-muted-foreground">Month</div>
+        <div className="grid text-[11px] text-muted-foreground" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
           {Array.from({ length: cols }).map((_, i) => (
             <div key={i} className="text-center py-1 select-none">
               {monthName(tl.startMonth + i)}
             </div>
           ))}
         </div>
+      </div>
+      <div className="grid grid-cols-[240px_1fr] border-b border-t">
+        <div className="px-4 py-3">
+          <div className="text-xs font-semibold tracking-wide text-muted-foreground truncate">{leftTitle}</div>
+        </div>
+        <div></div>
       </div>
     </div>
   );
@@ -596,6 +659,7 @@ function BarPill({ item, laneColor, colorClass, onEdit, onDelete, onResize, absS
   const [originalStartDate, setOriginalStartDate] = useState(item.startYear * 12 + item.startMonth);
   const [originalEndDate, setOriginalEndDate] = useState(item.endYear * 12 + item.endMonth);
   const [ghostCol, setGhostCol] = useState<number | null>(null);
+  const [showNotes, setShowNotes] = useState(false);
   // Use day-level precision for proportional positioning within months
   const itemAbsStart = toAbsWithDays(item.startYear, item.startMonth, item.startDay || 1);
   const itemAbsEnd = toAbsWithDays(item.endYear, item.endMonth, item.endDay || 1);
@@ -790,50 +854,55 @@ function BarPill({ item, laneColor, colorClass, onEdit, onDelete, onResize, absS
 
   return (
     <motion.div
-      layout
       style={{...style, height: `${barHeight}px`}}
       className="relative group/task"
     >
       {ghostCol !== null && (
         <div
-          className="pointer-events-none absolute inset-y-0 w-px bg-blue-500/50"
+          className="pointer-events-none absolute inset-y-0 w-px bg-primary/50"
           style={{ left: `calc(${((ghostCol - absStart) / cols) * 100}% )` }}
         />
       )}
       {/* Enhanced tooltip */}
       <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 z-40 opacity-0 group-hover/task:opacity-100 transition-opacity duration-200 pointer-events-none">
-        <div className="tooltip-container bg-slate-900 text-white text-sm px-3 py-2 rounded-lg shadow-xl border border-slate-700 whitespace-normal">
-          <div className="font-semibold text-white mb-1 leading-tight">{item.title}</div>
+        <div className="tooltip-container bg-foreground text-background text-sm px-3 py-2 rounded-lg shadow-xl border border-border whitespace-normal">
+          <div className="font-semibold text-background mb-1 leading-tight">{item.title}</div>
           {item.description && (
-            <div className="text-slate-300 text-xs mb-2 leading-relaxed">{item.description}</div>
+            <div className="text-background/80 dark:text-foreground/80 text-xs mb-2 leading-relaxed">{item.description}</div>
           )}
           <div className="text-xs space-y-1">
             <div className="flex justify-between items-center">
-              <span className="text-slate-400">Duration:</span>
-              <span className="text-white font-medium ml-2">{startDateStr} - {endDateStr}</span>
+              <span className="opacity-80">Duration:</span>
+              <span className="font-medium ml-2">{startDateStr} - {endDateStr}</span>
             </div>
             {item.owner && (
               <div className="flex justify-between items-center">
-                <span className="text-slate-400">Owner:</span>
-                <span className="text-white ml-2">{item.owner}</span>
+                <span className="opacity-80">Owner:</span>
+                <span className="ml-2">{item.owner}</span>
               </div>
             )}
             {item.progress !== undefined && (
               <div className="flex justify-between items-center">
-                <span className="text-slate-400">Progress:</span>
-                <span className="text-white ml-2">{item.progress}%</span>
+                <span className="opacity-80">Progress:</span>
+                <span className="ml-2">{item.progress}%</span>
+              </div>
+            )}
+            {item.notes && (
+              <div className="mt-2 pt-2 border-t border-background/20">
+                <div className="opacity-80 mb-1">Notes:</div>
+                <div className="text-xs leading-relaxed whitespace-pre-wrap max-h-32 overflow-y-auto">{item.notes}</div>
               </div>
             )}
           </div>
         </div>
-        <div className="w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-slate-900 mx-auto"></div>
+        <div className="w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-foreground mx-auto"></div>
       </div>
       {/* Left resize handle */}
       <div
         className="absolute left-0 top-0 w-1 h-full cursor-ew-resize z-20 hover:bg-white/30 flex items-center justify-center group"
         onMouseDown={handleMouseDown('start')}
       >
-        <div className="w-0.5 h-3/4 bg-white/50 group-hover:bg-white/80 transition-colors" />
+        <div className="w-0.5 h-3/4 bg-white/60 group-hover:bg-white/80 transition-colors" />
       </div>
       
       {/* Right resize handle */}
@@ -841,10 +910,10 @@ function BarPill({ item, laneColor, colorClass, onEdit, onDelete, onResize, absS
         className="absolute right-0 top-0 w-1 h-full cursor-ew-resize z-20 hover:bg-white/30 flex items-center justify-center group"
         onMouseDown={handleMouseDown('end')}
       >
-        <div className="w-0.5 h-3/4 bg-white/50 group-hover:bg-white/80 transition-colors" />
+        <div className="w-0.5 h-3/4 bg-white/60 group-hover:bg-white/80 transition-colors" />
       </div>
 
-      <div className={`group h-full rounded-md ${colorClass} text-white shadow-sm flex items-center pl-0 pr-1 relative overflow-hidden ${isDragging ? 'opacity-80' : ''}`}>
+      <div className={`group h-full rounded-md ${colorClass} text-white shadow-sm flex items-center pl-0 pr-1 relative overflow-hidden border-2 border-slate-400 ${isDragging ? 'opacity-80' : ''}`}>
         {shouldDarkenStage(colorClass) && (
           <div className="absolute inset-0 bg-black/15 pointer-events-none" />
         )}
@@ -861,16 +930,16 @@ function BarPill({ item, laneColor, colorClass, onEdit, onDelete, onResize, absS
                 : startPositionInMonth < 0 ? 'translateX(0%)' : 'translateX(-100%)'
             }}
           >
-            <div className={`bg-slate-800 text-white text-xs px-2 py-1 rounded shadow-lg whitespace-nowrap border border-slate-600 ${startPositionInMonth < 0 || startPositionInMonth > cols ? 'opacity-60' : ''}`}>
+            <div className={`bg-foreground text-background text-xs px-2 py-1 rounded shadow-lg whitespace-nowrap border border-border ${startPositionInMonth < 0 || startPositionInMonth > cols ? 'opacity-60' : ''}`}>
               <div className="font-medium">{startDateStr}</div>
-              <div className="text-slate-300 text-[10px]">
+              <div className="opacity-80 text-[10px]">
                 Start • {getMonthName(item.startMonth)}
                 {(startPositionInMonth < 0 || startPositionInMonth > cols) && (
                   <span className="text-amber-300 ml-1">⤴</span>
                 )}
               </div>
             </div>
-            <div className="w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-slate-800 mx-auto"></div>
+            <div className="w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-foreground mx-auto"></div>
           </div>
         )}
 
@@ -887,47 +956,56 @@ function BarPill({ item, laneColor, colorClass, onEdit, onDelete, onResize, absS
                 : endPositionInMonth < 0 ? 'translateX(0%)' : 'translateX(-100%)'
             }}
           >
-            <div className={`bg-slate-800 text-white text-xs px-2 py-1 rounded shadow-lg whitespace-nowrap border border-slate-600 ${endPositionInMonth < 0 || endPositionInMonth > cols ? 'opacity-60' : ''}`}>
+            <div className={`bg-foreground text-background text-xs px-2 py-1 rounded shadow-lg whitespace-nowrap border border-border ${endPositionInMonth < 0 || endPositionInMonth > cols ? 'opacity-60' : ''}`}>
               <div className="font-medium">{endDateStr}</div>
-              <div className="text-slate-300 text-[10px]">
+              <div className="opacity-80 text-[10px]">
                 End • {getMonthName(item.endMonth)}
                 {(endPositionInMonth < 0 || endPositionInMonth > cols) && (
                   <span className="text-amber-300 ml-1">⤴</span>
                 )}
               </div>
             </div>
-            <div className="w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-slate-800 mx-auto"></div>
+            <div className="w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-foreground mx-auto"></div>
           </div>
         )}
         <span className="h-full w-2 rounded-l-md shrink-0" style={{ background: laneColor }} />
         <div className="ml-2 flex-1 flex items-center justify-between min-w-0 h-full">
           <span
-            className="roadmap-text leading-tight py-1 break-words hyphens-auto flex-1 pr-2 overflow-hidden text-white"
+            className="roadmap-text leading-tight py-1 break-words hyphens-auto flex-1 pr-2 overflow-hidden"
             style={{
               wordBreak: 'break-word',
               lineHeight: '1.35',
               fontSize: adjustedWidth < 35 ? '12px' : '13px',
-              fontWeight: fontWeight,
+              fontWeight: 500,
               display: '-webkit-box',
               WebkitLineClamp: 2,
               WebkitBoxOrient: 'vertical',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
-              textShadow: '0 1px 2px rgba(0,0,0,0.3)', // Add text shadow for better contrast
-              WebkitTextStroke: '0.3px rgba(0,0,0,0.2)' // Subtle text stroke for better definition
+              color: '#374151'
             }}
           >
             {item.title}
           </span>
           <div className="flex items-center gap-1 shrink-0 self-start mt-1">
             {typeof progress === "number" && <span className="text-[10px] font-bold opacity-95 bg-black/30 px-1.5 py-0.5 rounded text-white" style={{ textShadow: '0 1px 1px rgba(0,0,0,0.5)' }}>{progress}%</span>}
-            <div className="hidden gap-0.5 group-hover:flex">
-              <Button size="icon" variant="ghost" className="h-4 w-4 text-white/90 p-0" onClick={onEdit}>
-                <Edit2 className="h-2.5 w-2.5" />
+            {item.notes && (
+              <Button 
+                size="icon" 
+                variant="ghost" 
+                className={`h-5 w-5 p-0 ${showNotes ? 'bg-blue-600 hover:bg-blue-700' : 'bg-blue-500/80 hover:bg-blue-600'}`}
+                onClick={(e) => { e.stopPropagation(); setShowNotes(v => !v); }}
+              >
+                <FileText className="h-3 w-3 text-white" />
               </Button>
-              <Button size="icon" variant="ghost" className="h-4 w-4 text-white/90 p-0" onClick={onDelete}>
-                <Trash2 className="h-2.5 w-2.5" />
-              </Button>
+            )}
+            <div className="hidden gap-1 group-hover:flex">
+              <div className="h-6 w-6 flex items-center justify-center cursor-pointer" onClick={onEdit}>
+                <Edit2 className="h-4 w-4" fill="#334155" stroke="#334155" strokeWidth={0} />
+              </div>
+              <div className="h-6 w-6 flex items-center justify-center cursor-pointer" onClick={onDelete}>
+                <Trash2 className="h-4 w-4" fill="#dc2626" stroke="#dc2626" strokeWidth={0} />
+              </div>
             </div>
           </div>
         </div>
@@ -940,11 +1018,18 @@ function BarPill({ item, laneColor, colorClass, onEdit, onDelete, onResize, absS
         const pct = (msOffset - startOffset) / Math.max(0.1, endOffset - startOffset);
         return (
           <div key={i} className="absolute -top-5" style={{ left: `calc(${pct * 100}% - 6px)` }}>
-            <Flag className="h-3.5 w-3.5 text-slate-700 drop-shadow-sm" />
-            <div className="roadmap-text text-[10px] font-medium text-slate-700 whitespace-nowrap bg-white/80 px-1 rounded-sm shadow-sm" style={{ textShadow: '0 1px 1px rgba(255,255,255,0.8)' }}>{ms.label}</div>
+            <Flag className="h-3.5 w-3.5 text-foreground drop-shadow-sm" />
+            <div className="roadmap-text text-[10px] font-medium text-foreground whitespace-nowrap bg-background/80 px-1 rounded-sm shadow-sm" style={{ textShadow: '0 1px 1px rgba(255,255,255,0.8)' }}>{ms.label}</div>
           </div>
         );
       })}
+      {/* Expandable notes section */}
+      {showNotes && item.notes && (
+        <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-300 rounded-md p-2 shadow-lg z-50 text-xs text-slate-700 whitespace-pre-wrap max-h-40 overflow-y-auto">
+          <div className="font-semibold mb-1">Notes:</div>
+          {item.notes}
+        </div>
+      )}
     </motion.div>
   );
 }
@@ -957,10 +1042,8 @@ function TimelineControls({ tl, onChange }: { tl: Timeline; onChange: (patch: Pa
   const [ey, setEy] = useState(tl.endYear);
   const [em, setEm] = useState(tl.endMonth);
   const [autoFit, setAutoFit] = useState(tl.autoFit !== false);
-  const [zoom, setZoom] = useState<'quarter' | 'month' | 'week'>(tl.zoom ?? 'month');
   useEffect(() => { onChange({ leftTitle }); }, [leftTitle]);
   useEffect(() => { onChange({ autoFit }); }, [autoFit]);
-  useEffect(() => { onChange({ zoom }); }, [zoom]);
   useEffect(() => {
     const a = toAbs(sy, sm), b = toAbs(ey, em);
     if (a <= b) onChange({ startYear: sy, startMonth: sm, endYear: ey, endMonth: em });
@@ -975,13 +1058,13 @@ function TimelineControls({ tl, onChange }: { tl: Timeline; onChange: (patch: Pa
     const [y,m] = e.target.value.split('-').map(Number); if(!isNaN(y) && !isNaN(m)) { setEy(y); setEm(m-1); }
   };
   return (
-    <div className="flex flex-wrap items-end gap-4">
+    <div className="flex flex-wrap items-start gap-4">
       <div className="space-y-1">
-        <Label className="text-sm text-slate-600">Title</Label>
+        <Label className="text-sm">Title</Label>
         <Input className="w-[180px] h-8" value={leftTitle} onChange={(e: React.ChangeEvent<HTMLInputElement>)=>setLeftTitle(e.target.value)} />
       </div>
       <div className="space-y-1">
-        <Label className="text-sm text-slate-600">Date Range</Label>
+        <Label className="text-sm">Date Range</Label>
         <div className="flex items-center gap-2">
           <Input
             type="month"
@@ -990,7 +1073,7 @@ function TimelineControls({ tl, onChange }: { tl: Timeline; onChange: (patch: Pa
             className="h-8"
             disabled={autoFit}
           />
-          <span className="text-slate-500">→</span>
+          <span className="text-muted-foreground">→</span>
           <Input
             type="month"
             value={endValue}
@@ -999,7 +1082,10 @@ function TimelineControls({ tl, onChange }: { tl: Timeline; onChange: (patch: Pa
             disabled={autoFit}
           />
         </div>
-        <div className="flex items-center gap-2 mt-2">
+      </div>
+      <div className="space-y-1">
+        <Label className="text-sm">&nbsp;</Label>
+        <div className="flex items-center gap-2 h-8">
           <input
             type="checkbox"
             id="autoFit"
@@ -1007,22 +1093,9 @@ function TimelineControls({ tl, onChange }: { tl: Timeline; onChange: (patch: Pa
             onChange={(e) => setAutoFit(e.target.checked)}
             className="rounded"
           />
-          <Label htmlFor="autoFit" className="text-sm text-slate-600 cursor-pointer">
-            Auto-fit to tasks {autoFit && <span className="text-xs text-blue-600 font-medium">(Active)</span>}
+          <Label htmlFor="autoFit" className="text-sm cursor-pointer">
+            Auto-fit to tasks {autoFit && <span className="text-xs text-primary font-medium">(Active)</span>}
           </Label>
-        </div>
-      </div>
-      <div className="space-y-1">
-        <Label className="text-sm text-slate-600">Zoom</Label>
-        <div className="flex items-center gap-2">
-          <Select value={zoom} onValueChange={(v: string)=>setZoom((v as 'quarter'|'month'|'week'))}>
-            <SelectTrigger className="w-[160px] h-8"><SelectValue placeholder="Zoom" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="quarter">Quarter</SelectItem>
-              <SelectItem value="month">Month</SelectItem>
-              <SelectItem value="week">Week</SelectItem>
-            </SelectContent>
-          </Select>
         </div>
       </div>
     </div>
@@ -1033,6 +1106,7 @@ function ItemForm({ onSubmit, onDelete, initial, lanes, stages, tl }:{ onSubmit:
   const [title, setTitle] = useState(initial?.title || "");
   const [description, setDescription] = useState(initial?.description || "");
   const [owner, setOwner] = useState(initial?.owner || "");
+  const [notes, setNotes] = useState(initial?.notes || "");
   const [laneId, setLaneId] = useState<LaneId>(initial?.laneId || lanes[0].id);
   const [stageId, setStageId] = useState<StageId>(initial?.stageId || stages[0].id);
   const defaultStartYear = initial?.startYear ?? tl.startYear;
@@ -1072,13 +1146,15 @@ function ItemForm({ onSubmit, onDelete, initial, lanes, stages, tl }:{ onSubmit:
           endDay: clamp(end.d,1,31),
           progress: Number.isFinite(progress) ? clamp(progress, 0, 100) : undefined,
           milestones: milestones.filter(m => m.label.trim()).map(m => ({ label: m.label.trim(), month: clamp(m.month, 0, 11) })),
+          notes: notes.trim() || undefined,
         };
         onSubmit(payload);
       }}
       className="space-y-4"
     >
       <div className="space-y-2"><Label>Title</Label><Input value={title} onChange={(e: React.ChangeEvent<HTMLInputElement>)=>setTitle(e.target.value)} placeholder="e.g., Market Analysis" required /></div>
-      <div className="space-y-2"><Label>Description</Label><Textarea value={description} onChange={(e: React.ChangeEvent<HTMLTextAreaElement>)=>setDescription(e.target.value)} placeholder="Short context for stakeholders" /></div>
+      <div className="space-y-2"><Label>Description</Label><Textarea value={description} onChange={(e: React.ChangeEvent<HTMLTextAreaElement>)=>setDescription(e.target.value)} placeholder="Short context for stakeholders" rows={2} /></div>
+      <div className="space-y-2"><Label>Detailed Notes (Optional)</Label><Textarea value={notes} onChange={(e: React.ChangeEvent<HTMLTextAreaElement>)=>setNotes(e.target.value)} placeholder="Add detailed implementation notes, requirements, or context..." rows={3} /></div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="space-y-2">
           <Label>Lane</Label>
@@ -1102,7 +1178,7 @@ function ItemForm({ onSubmit, onDelete, initial, lanes, stages, tl }:{ onSubmit:
       </div>
       <div className="space-y-2"><Label>Milestones</Label><MiniMilestonesEditor value={milestones} onChange={setMilestones} /></div>
       <div className="flex items-center justify-between">
-  <div className="text-xs text-slate-500 inline-flex items-center gap-1"><Calendar className="h-3.5 w-3.5" /> {startDate} – {endDate}</div>
+  <div className="text-xs text-muted-foreground inline-flex items-center gap-1"><Calendar className="h-3.5 w-3.5" /> {startDate} – {endDate}</div>
         <DialogFooter className="gap-2">{onDelete && (<Button type="button" variant="ghost" onClick={onDelete} className="text-red-600">Delete</Button>)}<Button type="submit">Save</Button></DialogFooter>
       </div>
     </form>
@@ -1154,45 +1230,58 @@ function LaneManager({ lanes, onAdd, onRename, onRecolor, onDelete, onReorder }:
         <Input type="color" value={color} onChange={(e: React.ChangeEvent<HTMLInputElement>)=>setColor(e.target.value)} />
         <Button type="button" onClick={()=>{ if(label.trim()){ onAdd(label.trim(), color); setLabel(""); }}}>Add lane</Button>
       </div>
-      <p className="text-xs text-slate-500">Deleting a lane reassigns its items to the first remaining lane.</p>
+      <p className="text-xs text-muted-foreground">Deleting a lane reassigns its items to the first remaining lane.</p>
     </div>
   );
 }
 
 function StageManager({ stages, onAdd, onRename, onRecolor, onDelete, onReorder }:{ stages: StageMeta[]; onAdd:(label:string,colorClass:string)=>void; onRename:(id:StageId,label:string)=>void; onRecolor:(id:StageId,colorClass:string)=>void; onDelete:(id:StageId)=>void; onReorder:(next:StageMeta[])=>void; }) {
-  const [label, setLabel] = useState(""); const [colorClass, setColorClass] = useState("bg-slate-500");
+  const [label, setLabel] = useState(""); const [colorClass, setColorClass] = useState("bg-teal-500");
   const move = (i:number,dir:-1|1)=>{ const j=i+dir; if(j<0||j>=stages.length) return; const copy=stages.slice(); [copy[i],copy[j]]=[copy[j],copy[i]]; onReorder(copy); };
+  const colors = ["bg-slate-500","bg-cyan-500","bg-teal-500","bg-emerald-500","bg-sky-500","bg-blue-500","bg-indigo-500","bg-rose-500","bg-amber-500"];
   return (
-    <div className="space-y-3">
+    <div className="space-y-2 max-h-[60vh] overflow-y-auto">
       {stages.map((s,i)=>(
-        <div key={s.id} className="grid grid-cols-[1fr_220px_auto_auto] gap-2 items-center">
-          <Input value={s.label} onChange={(e: React.ChangeEvent<HTMLInputElement>)=>onRename(s.id, e.target.value)} />
-          <Select value={s.colorClass} onValueChange={(v)=>onRecolor(s.id, v)}>
-            <SelectTrigger><SelectValue placeholder="Color" /></SelectTrigger>
-            <SelectContent>
-              {["bg-purple-500","bg-cyan-500","bg-amber-500","bg-emerald-500","bg-rose-500","bg-indigo-500","bg-sky-500","bg-lime-500","bg-fuchsia-500"]
-                .map(c => <SelectItem key={c} value={c}>{c.replace("bg-","")}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <Button type="button" variant="ghost" onClick={()=>move(i,-1)}>↑</Button>
-          <div className="flex gap-2">
-            <Button type="button" variant="ghost" onClick={()=>move(i,1)}>↓</Button>
-            <Button type="button" variant="destructive" onClick={()=>onDelete(s.id)}>Delete</Button>
+        <div key={s.id} className="flex flex-col gap-2">
+          <Input className="w-full" value={s.label} onChange={(e: React.ChangeEvent<HTMLInputElement>)=>onRename(s.id, e.target.value)} />
+          <div className="flex items-center gap-2">
+            <div className="flex gap-1 flex-wrap">
+              {colors.map(c => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => onRecolor(s.id, c)}
+                  className={`h-7 w-7 rounded ${c} ${s.colorClass === c ? 'ring-2 ring-offset-1 ring-slate-900' : ''}`}
+                  title={c.replace("bg-","")}
+                />
+              ))}
+            </div>
+            <div className="flex gap-1 ml-auto">
+              <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={()=>move(i,-1)}>↑</Button>
+              <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={()=>move(i,1)}>↓</Button>
+              <Button type="button" variant="destructive" size="icon" className="h-7 w-7" onClick={()=>onDelete(s.id)}><Trash2 className="h-3 w-3" /></Button>
+            </div>
           </div>
         </div>
       ))}
-      <div className="grid grid-cols-[1fr_220px_auto] gap-2 items-center">
-        <Input placeholder="New stage label" value={label} onChange={(e: React.ChangeEvent<HTMLInputElement>)=>setLabel(e.target.value)} />
-        <Select value={colorClass} onValueChange={setColorClass}>
-          <SelectTrigger><SelectValue placeholder="Color" /></SelectTrigger>
-          <SelectContent>
-            {["bg-purple-500","bg-cyan-500","bg-amber-500","bg-emerald-500","bg-rose-500","bg-indigo-500","bg-sky-500","bg-lime-500","bg-fuchsia-500"]
-              .map(c => <SelectItem key={c} value={c}>{c.replace("bg-","")}</SelectItem>)}
-          </SelectContent>
-        </Select>
-        <Button type="button" onClick={()=>{ if(label.trim()){ onAdd(label.trim(), colorClass); setLabel(""); }}}>Add stage</Button>
+      <div className="flex flex-col gap-2 pt-2 border-t">
+        <Input className="w-full" placeholder="New stage label" value={label} onChange={(e: React.ChangeEvent<HTMLInputElement>)=>setLabel(e.target.value)} />
+        <div className="flex items-center gap-2">
+          <div className="flex gap-1 flex-wrap">
+            {colors.map(c => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => setColorClass(c)}
+                className={`h-7 w-7 rounded ${c} ${colorClass === c ? 'ring-2 ring-offset-1 ring-slate-900' : ''}`}
+                title={c.replace("bg-","")}
+              />
+            ))}
+          </div>
+          <Button type="button" className="ml-auto" onClick={()=>{ if(label.trim()){ onAdd(label.trim(), colorClass); setLabel(""); }}}>Add</Button>
+        </div>
       </div>
-      <p className="text-xs text-slate-500">Deleting a stage reassigns affected items to the first remaining stage.</p>
+      <p className="text-xs text-muted-foreground">Deleting a stage reassigns affected items to the first remaining stage.</p>
     </div>
   );
 }

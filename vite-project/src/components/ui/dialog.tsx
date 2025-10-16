@@ -16,13 +16,13 @@ export const DialogContent: React.FC<React.HTMLAttributes<HTMLDivElement>> = ({ 
   if(!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/30" onClick={()=>onOpenChange(false)} />
-      <div className={clsx('relative z-10 w-full max-w-md rounded-lg border bg-white shadow-lg p-6 animate-in fade-in', className)} {...rest}>
+      <div className="absolute inset-0 bg-black/40" onClick={()=>onOpenChange(false)} />
+      <div className={clsx('relative z-10 w-full max-w-md rounded-lg border bg-card text-card-foreground shadow-lg p-6 animate-in fade-in', className)} {...rest}>
         {children}
       </div>
     </div>
   );
 };
 export const DialogHeader: React.FC<React.HTMLAttributes<HTMLDivElement>> = ({ className='', ...p }) => <div className={clsx('space-y-1 mb-4', className)} {...p} />
-export const DialogTitle: React.FC<React.HTMLAttributes<HTMLHeadingElement>> = ({ className='', ...p }) => <h3 className={clsx('text-lg font-semibold', className)} {...p} />
+export const DialogTitle: React.FC<React.HTMLAttributes<HTMLHeadingElement>> = ({ className='', ...p }) => <h3 className={clsx('text-lg font-semibold text-foreground', className)} {...p} />
 export const DialogFooter: React.FC<React.HTMLAttributes<HTMLDivElement>> = ({ className='', ...p }) => <div className={clsx('flex justify-end gap-2 mt-6', className)} {...p} />

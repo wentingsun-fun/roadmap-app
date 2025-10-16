@@ -10,11 +10,11 @@ export const SelectTrigger: React.FC<React.HTMLAttributes<HTMLButtonElement> & {
   const [open,setOpen] = React.useState(false);
   return (
     <div className="relative">
-      <button type="button" className={clsx('flex h-9 w-full items-center justify-between rounded-md border border-slate-300 bg-white px-3 py-1 text-sm', className)} {...p} onClick={()=>setOpen(o=>!o)}>
-        {ctx.value ? <span>{ctx.value}</span> : <span className="text-slate-400">{placeholder || 'Select'}</span>}
+      <button type="button" className={clsx('flex h-9 w-full items-center justify-between rounded-md border border-border bg-background px-3 py-1 text-sm', className)} {...p} onClick={()=>setOpen(o=>!o)}>
+        {ctx.value ? <span>{ctx.value}</span> : <span className="text-muted-foreground">{placeholder || 'Select'}</span>}
         {children && <span className="sr-only">toggle</span>}
       </button>
-      {open && <div className="absolute z-50 mt-1 w-full rounded-md border bg-white shadow-md" onKeyDown={(e)=>{ if(e.key==='Escape') setOpen(false); }}>{React.Children.map(children, child => React.isValidElement(child) ? React.cloneElement(child as any, { onSelect: () => setOpen(false) }) : child)}</div>}
+      {open && <div className="absolute z-50 mt-1 w-full rounded-md border bg-popover text-popover-foreground shadow-md" onKeyDown={(e)=>{ if(e.key==='Escape') setOpen(false); }}>{React.Children.map(children, child => React.isValidElement(child) ? React.cloneElement(child as any, { onSelect: () => setOpen(false) }) : child)}</div>}
     </div>
   );
 };
@@ -25,7 +25,7 @@ export const SelectItem: React.FC<{ value: string; children: React.ReactNode; on
     <div
       role="option"
       onClick={()=>{ ctx.setValue(value); onSelect?.(); }}
-      className={clsx('cursor-pointer select-none rounded px-2 py-1 text-sm hover:bg-slate-100', ctx.value===value && 'bg-slate-200 font-medium')}
+      className={clsx('cursor-pointer select-none rounded px-2 py-1 text-sm hover:bg-accent', ctx.value===value && 'bg-secondary font-medium')}
     >{children}</div>
   );
 };
