@@ -7,9 +7,18 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Trash2, Plus, Download, Upload, Calendar, Edit2, Flag, FileText } from "lucide-react";
+import { Trash2, Plus, Download, Upload, Calendar, Edit2, Flag, FileText, LayoutDashboard, Clock, ChevronRight } from "lucide-react";
 
 const uuid = () => (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2));
+
+/* ---------- Roadmap Meta Type ---------- */
+export type RoadmapMeta = {
+  id: string;
+  name: string;
+  description?: string;
+  createdAt: string;
+  updatedAt: string;
+};
 
 /* ---------- Time Labels ---------- */
 const MONTHS = [
@@ -56,10 +65,88 @@ type Timeline = {
 };
 
 /* ---------- Storage Keys ---------- */
-const STORAGE_ITEMS = "roadmap.items.v2";
-const STORAGE_LANES = "roadmap.lanes.v2";
-const STORAGE_STAGES = "roadmap.stages.v1";
-const STORAGE_TL = "roadmap.timeline.v2";
+const STORAGE_ROADMAPS_LIST = "roadmap.list.v1";
+const STORAGE_CURRENT_ROADMAP = "roadmap.current.v1";
+const getStorageKey = (roadmapId: string, type: string) => `roadmap.${roadmapId}.${type}`;
+
+/* ---------- Multi-Roadmap Storage ---------- */
+export function loadRoadmapsList(): RoadmapMeta[] {
+  if (typeof window === "undefined") return [];
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_ROADMAPS_LIST) || "[]") as RoadmapMeta[];
+  } catch {
+    return [];
+  }
+}
+
+export function saveRoadmapsList(roadmaps: RoadmapMeta[]) {
+  localStorage.setItem(STORAGE_ROADMAPS_LIST, JSON.stringify(roadmaps));
+}
+
+export function getCurrentRoadmapId(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(STORAGE_CURRENT_ROADMAP);
+}
+
+export function setCurrentRoadmapId(id: string | null) {
+  if (id) {
+    localStorage.setItem(STORAGE_CURRENT_ROADMAP, id);
+  } else {
+    localStorage.removeItem(STORAGE_CURRENT_ROADMAP);
+  }
+}
+
+export function createNewRoadmap(name: string, description?: string): RoadmapMeta {
+  const now = new Date().toISOString();
+  const roadmap: RoadmapMeta = {
+    id: uuid(),
+    name,
+    description,
+    createdAt: now,
+    updatedAt: now,
+  };
+  
+  const list = loadRoadmapsList();
+  list.push(roadmap);
+  saveRoadmapsList(list);
+  
+  // Initialize empty roadmap data
+  saveRoadmapData(roadmap.id, [], DEFAULT_LANES, DEFAULT_STAGES, DEFAULT_TL);
+  
+  return roadmap;
+}
+
+export function deleteRoadmap(id: string) {
+  const list = loadRoadmapsList();
+  saveRoadmapsList(list.filter(r => r.id !== id));
+  
+  // Clean up roadmap data from localStorage
+  localStorage.removeItem(getStorageKey(id, "items"));
+  localStorage.removeItem(getStorageKey(id, "lanes"));
+  localStorage.removeItem(getStorageKey(id, "stages"));
+  localStorage.removeItem(getStorageKey(id, "timeline"));
+  
+  // If this was the current roadmap, clear it
+  if (getCurrentRoadmapId() === id) {
+    setCurrentRoadmapId(null);
+  }
+}
+
+export function updateRoadmapMeta(id: string, updates: Partial<Pick<RoadmapMeta, 'name' | 'description'>>) {
+  const list = loadRoadmapsList();
+  const idx = list.findIndex(r => r.id === id);
+  if (idx !== -1) {
+    list[idx] = { ...list[idx], ...updates, updatedAt: new Date().toISOString() };
+    saveRoadmapsList(list);
+  }
+}
+
+function saveRoadmapData(roadmapId: string, items: RoadmapItem[], lanes: LaneMeta[], stages: StageMeta[], tl: Timeline) {
+  localStorage.setItem(getStorageKey(roadmapId, "items"), JSON.stringify(items));
+  localStorage.setItem(getStorageKey(roadmapId, "lanes"), JSON.stringify(lanes));
+  localStorage.setItem(getStorageKey(roadmapId, "stages"), JSON.stringify(stages));
+  localStorage.setItem(getStorageKey(roadmapId, "timeline"), JSON.stringify(tl));
+}
 
 /* ---------- Defaults ---------- */
 const DEFAULT_LANES: LaneMeta[] = [
@@ -80,10 +167,10 @@ const thisYear = new Date().getFullYear();
 const DEFAULT_TL: Timeline = { leftTitle: "Tasks", startYear: thisYear, startMonth: 0, endYear: thisYear, endMonth: 11, autoFit: true, zoom: 'month' };
 
 /* ---------- Persistence ---------- */
-function load(): { items: RoadmapItem[]; lanes: LaneMeta[]; stages: StageMeta[]; tl: Timeline } {
+function load(roadmapId: string): { items: RoadmapItem[]; lanes: LaneMeta[]; stages: StageMeta[]; tl: Timeline } {
   if (typeof window === "undefined") return { items: [], lanes: DEFAULT_LANES, stages: DEFAULT_STAGES, tl: DEFAULT_TL };
   try {
-    const rawItems = JSON.parse(localStorage.getItem(STORAGE_ITEMS) || "[]") as any[];
+    const rawItems = JSON.parse(localStorage.getItem(getStorageKey(roadmapId, "items")) || "[]") as any[];
     // Migration: older items had { year, startMonth, endMonth }
     const items: RoadmapItem[] = rawItems.map(it => {
       if (it && typeof it === 'object' && !('startYear' in it)) {
@@ -106,10 +193,10 @@ function load(): { items: RoadmapItem[]; lanes: LaneMeta[]; stages: StageMeta[];
       }
       return it as RoadmapItem;
     });
-    const lanes = JSON.parse(localStorage.getItem(STORAGE_LANES) || "[]") as LaneMeta[];                    
+    const lanes = JSON.parse(localStorage.getItem(getStorageKey(roadmapId, "lanes")) || "[]") as LaneMeta[];                    
 
-    const stages = JSON.parse(localStorage.getItem(STORAGE_STAGES) || "[]") as StageMeta[];
-    const tl = JSON.parse(localStorage.getItem(STORAGE_TL) || "null") as Timeline | null;
+    const stages = JSON.parse(localStorage.getItem(getStorageKey(roadmapId, "stages")) || "[]") as StageMeta[];
+    const tl = JSON.parse(localStorage.getItem(getStorageKey(roadmapId, "timeline")) || "null") as Timeline | null;
 
     return {
       items,
@@ -122,11 +209,10 @@ function load(): { items: RoadmapItem[]; lanes: LaneMeta[]; stages: StageMeta[];
   }
 }
 
-function save(items: RoadmapItem[], lanes: LaneMeta[], stages: StageMeta[], tl: Timeline) {
-  localStorage.setItem(STORAGE_ITEMS, JSON.stringify(items));
-  localStorage.setItem(STORAGE_LANES, JSON.stringify(lanes));
-  localStorage.setItem(STORAGE_STAGES, JSON.stringify(stages));
-  localStorage.setItem(STORAGE_TL, JSON.stringify(tl));
+function save(roadmapId: string, items: RoadmapItem[], lanes: LaneMeta[], stages: StageMeta[], tl: Timeline) {
+  saveRoadmapData(roadmapId, items, lanes, stages, tl);
+  // Update the roadmap's updatedAt timestamp
+  updateRoadmapMeta(roadmapId, {});
 }
 
 /* ---------- Helpers ---------- */
@@ -189,15 +275,21 @@ function calculateOptimalTimelineRange(items: RoadmapItem[]): { startYear: numbe
 /* ============================================================
    App
 ============================================================ */
-export default function RoadmapApp() {
-  const [{ items, lanes, stages, tl }, setState] = useState(load());
+type RoadmapAppProps = {
+  roadmapId: string;
+  roadmapName: string;
+  onBack: () => void;
+};
+
+export default function RoadmapApp({ roadmapId, roadmapName, onBack }: RoadmapAppProps) {
+  const [{ items, lanes, stages, tl }, setState] = useState(() => load(roadmapId));
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<RoadmapItem | null>(null);
   const [laneMgrOpen, setLaneMgrOpen] = useState(false);
   const [stageMgrOpen, setStageMgrOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
 
-  useEffect(() => { save(items, lanes, stages, tl); }, [items, lanes, stages, tl]);
+  useEffect(() => { save(roadmapId, items, lanes, stages, tl); }, [roadmapId, items, lanes, stages, tl]);
 
   const laneById = useMemo(() => Object.fromEntries(lanes.map(l => [l.id, l])), [lanes]);
   const stageById = useMemo(() => Object.fromEntries(stages.map(s => [s.id, s])), [stages]);
@@ -416,7 +508,16 @@ export default function RoadmapApp() {
         <div className="flex flex-col gap-3">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <h1 className="text-3xl font-semibold tracking-tight">Roadmap</h1>
+              <button
+                onClick={onBack}
+                className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-2"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+                Back to Roadmaps
+              </button>
+              <h1 className="text-3xl font-semibold tracking-tight">{roadmapName}</h1>
               <p className="text-muted-foreground">Editable time range, stages, lanes, and header title.</p>
             </div>
             <TimelineControls tl={tl} onChange={setTimeline} />
@@ -1282,6 +1383,217 @@ function StageManager({ stages, onAdd, onRename, onRecolor, onDelete, onReorder 
         </div>
       </div>
       <p className="text-xs text-muted-foreground">Deleting a stage reassigns affected items to the first remaining stage.</p>
+    </div>
+  );
+}
+
+/* ============================================================
+   Roadmap Home - Landing page with all roadmaps
+============================================================ */
+export function RoadmapHome({ onSelectRoadmap }: { onSelectRoadmap: (id: string, name: string) => void }) {
+  const [roadmaps, setRoadmaps] = useState<RoadmapMeta[]>(() => loadRoadmapsList());
+  const [createOpen, setCreateOpen] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newDescription, setNewDescription] = useState("");
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+
+  const handleCreate = () => {
+    if (!newName.trim()) return;
+    const roadmap = createNewRoadmap(newName.trim(), newDescription.trim() || undefined);
+    setRoadmaps(loadRoadmapsList());
+    setCreateOpen(false);
+    setNewName("");
+    setNewDescription("");
+    // Automatically open the new roadmap
+    onSelectRoadmap(roadmap.id, roadmap.name);
+  };
+
+  const handleDelete = (id: string) => {
+    deleteRoadmap(id);
+    setRoadmaps(loadRoadmapsList());
+    setDeleteConfirm(null);
+  };
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+  };
+
+  // Color palette for roadmap cards
+  const cardColors = [
+    'from-teal-500/20 to-cyan-500/10 border-teal-500/30',
+    'from-blue-500/20 to-indigo-500/10 border-blue-500/30',
+    'from-emerald-500/20 to-green-500/10 border-emerald-500/30',
+    'from-purple-500/20 to-pink-500/10 border-purple-500/30',
+    'from-amber-500/20 to-orange-500/10 border-amber-500/30',
+    'from-rose-500/20 to-red-500/10 border-rose-500/30',
+  ];
+
+  return (
+    <div className="min-h-screen w-full bg-background text-foreground">
+      {/* Hero Header */}
+      <div className="relative overflow-hidden bg-gradient-to-br from-teal-600 via-cyan-600 to-blue-700 dark:from-teal-900 dark:via-cyan-900 dark:to-blue-950">
+        <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4wNSI+PHBhdGggZD0iTTM2IDM0djZoNnYtNmgtNnptMCAwdi02aC02djZoNnoiLz48L2c+PC9nPjwvc3ZnPg==')] opacity-40"></div>
+        <div className="relative mx-auto max-w-7xl px-6 py-16 sm:py-24">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="p-3 bg-white/10 rounded-xl backdrop-blur-sm">
+              <LayoutDashboard className="h-8 w-8 text-white" />
+            </div>
+            <h1 className="text-4xl sm:text-5xl font-bold text-white tracking-tight">
+              Roadmap Planner
+            </h1>
+          </div>
+          <p className="text-lg text-white/80 max-w-2xl">
+            Create, manage, and visualize your project roadmaps. Plan your features, track progress, and stay organized.
+          </p>
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="mx-auto max-w-7xl px-6 py-10">
+        {/* Action Bar */}
+        <div className="flex items-center justify-between mb-8">
+          <div>
+            <h2 className="text-2xl font-semibold">Your Roadmaps</h2>
+            <p className="text-muted-foreground">
+              {roadmaps.length === 0 
+                ? "Get started by creating your first roadmap" 
+                : `${roadmaps.length} roadmap${roadmaps.length !== 1 ? 's' : ''}`}
+            </p>
+          </div>
+          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+            <DialogTrigger asChild>
+              <Button size="lg" className="gap-2 shadow-lg shadow-primary/25">
+                <Plus className="h-5 w-5" />
+                New Roadmap
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle className="text-xl">Create New Roadmap</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 py-4">
+                <div className="space-y-2">
+                  <Label htmlFor="name">Roadmap Name</Label>
+                  <Input
+                    id="name"
+                    placeholder="e.g., Q1 2025 Product Roadmap"
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="description">Description (optional)</Label>
+                  <Textarea
+                    id="description"
+                    placeholder="Brief description of this roadmap..."
+                    value={newDescription}
+                    onChange={(e) => setNewDescription(e.target.value)}
+                    rows={3}
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setCreateOpen(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={handleCreate} disabled={!newName.trim()}>
+                  Create Roadmap
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </div>
+
+        {/* Roadmaps Grid */}
+        {roadmaps.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 px-4">
+            <div className="w-24 h-24 rounded-full bg-muted flex items-center justify-center mb-6">
+              <LayoutDashboard className="h-12 w-12 text-muted-foreground" />
+            </div>
+            <h3 className="text-xl font-semibold mb-2">No roadmaps yet</h3>
+            <p className="text-muted-foreground text-center max-w-md mb-6">
+              Create your first roadmap to start planning and tracking your projects, features, and milestones.
+            </p>
+            <Button size="lg" onClick={() => setCreateOpen(true)} className="gap-2">
+              <Plus className="h-5 w-5" />
+              Create Your First Roadmap
+            </Button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {roadmaps.map((roadmap, idx) => (
+              <motion.div
+                key={roadmap.id}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: idx * 0.05 }}
+              >
+                <Card className={`group relative overflow-hidden border-2 hover:shadow-xl transition-all duration-300 cursor-pointer bg-gradient-to-br ${cardColors[idx % cardColors.length]}`}>
+                  <CardContent className="p-6" onClick={() => onSelectRoadmap(roadmap.id, roadmap.name)}>
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="flex-1 min-w-0">
+                        <h3 className="text-lg font-semibold truncate group-hover:text-primary transition-colors">
+                          {roadmap.name}
+                        </h3>
+                        {roadmap.description && (
+                          <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
+                            {roadmap.description}
+                          </p>
+                        )}
+                      </div>
+                      <ChevronRight className="h-5 w-5 text-muted-foreground group-hover:text-primary group-hover:translate-x-1 transition-all flex-shrink-0 ml-2" />
+                    </div>
+                    
+                    <div className="flex items-center gap-4 text-xs text-muted-foreground mt-4 pt-4 border-t border-border/50">
+                      <div className="flex items-center gap-1.5">
+                        <Clock className="h-3.5 w-3.5" />
+                        <span>Created {formatDate(roadmap.createdAt)}</span>
+                      </div>
+                    </div>
+                  </CardContent>
+                  
+                  {/* Delete button */}
+                  <button
+                    className="absolute top-3 right-3 p-2 rounded-lg bg-background/80 backdrop-blur-sm opacity-0 group-hover:opacity-100 hover:bg-destructive hover:text-destructive-foreground transition-all"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeleteConfirm(roadmap.id);
+                    }}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </Card>
+              </motion.div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-xl text-destructive">Delete Roadmap</DialogTitle>
+          </DialogHeader>
+          <p className="text-muted-foreground py-4">
+            Are you sure you want to delete this roadmap? This action cannot be undone and all associated data will be permanently removed.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteConfirm(null)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={() => deleteConfirm && handleDelete(deleteConfirm)}>
+              Delete Roadmap
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
