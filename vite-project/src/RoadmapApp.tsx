@@ -157,10 +157,10 @@ const DEFAULT_LANES: LaneMeta[] = [
 ];
 
 const DEFAULT_STAGES: StageMeta[] = [
-  { id: "planned",      label: "Planned",       colorClass: "bg-slate-500" },
-  { id: "in-progress",  label: "In Progress",   colorClass: "bg-cyan-500" },
-  { id: "under-review", label: "Under Review",  colorClass: "bg-teal-500" },
-  { id: "completed",    label: "Completed",     colorClass: "bg-emerald-500" },
+  { id: "planned",      label: "Planned",       colorClass: "bg-slate-200" },
+  { id: "in-progress",  label: "In Progress",   colorClass: "bg-cyan-200" },
+  { id: "under-review", label: "Under Review",  colorClass: "bg-teal-200" },
+  { id: "completed",    label: "Completed",     colorClass: "bg-emerald-200" },
 ];
 
 const thisYear = new Date().getFullYear();
@@ -1014,10 +1014,7 @@ function BarPill({ item, laneColor, colorClass, onEdit, onDelete, onResize, absS
         <div className="w-0.5 h-3/4 bg-white/60 group-hover:bg-white/80 transition-colors" />
       </div>
 
-      <div className={`group h-full rounded-md ${colorClass} text-white shadow-sm flex items-center pl-0 pr-1 relative overflow-hidden border-2 border-slate-400 ${isDragging ? 'opacity-80' : ''}`}>
-        {shouldDarkenStage(colorClass) && (
-          <div className="absolute inset-0 bg-black/15 pointer-events-none" />
-        )}
+      <div className={`group h-full rounded-md ${colorClass} shadow-sm flex items-center pl-0 pr-1 relative overflow-hidden border border-slate-300 ${isDragging ? 'opacity-80' : ''}`}>
         {/* Start date indicator */}
         {startOffset >= 0 && (
           <div
@@ -1337,9 +1334,9 @@ function LaneManager({ lanes, onAdd, onRename, onRecolor, onDelete, onReorder }:
 }
 
 function StageManager({ stages, onAdd, onRename, onRecolor, onDelete, onReorder }:{ stages: StageMeta[]; onAdd:(label:string,colorClass:string)=>void; onRename:(id:StageId,label:string)=>void; onRecolor:(id:StageId,colorClass:string)=>void; onDelete:(id:StageId)=>void; onReorder:(next:StageMeta[])=>void; }) {
-  const [label, setLabel] = useState(""); const [colorClass, setColorClass] = useState("bg-teal-500");
+  const [label, setLabel] = useState(""); const [colorClass, setColorClass] = useState("bg-teal-200");
   const move = (i:number,dir:-1|1)=>{ const j=i+dir; if(j<0||j>=stages.length) return; const copy=stages.slice(); [copy[i],copy[j]]=[copy[j],copy[i]]; onReorder(copy); };
-  const colors = ["bg-slate-500","bg-cyan-500","bg-teal-500","bg-emerald-500","bg-sky-500","bg-blue-500","bg-indigo-500","bg-rose-500","bg-amber-500"];
+  const colors = ["bg-slate-200","bg-cyan-200","bg-teal-200","bg-emerald-200","bg-sky-200","bg-blue-200","bg-indigo-200","bg-rose-200","bg-amber-200","bg-slate-300","bg-cyan-300","bg-teal-300","bg-emerald-300"];
   return (
     <div className="space-y-2 max-h-[60vh] overflow-y-auto">
       {stages.map((s,i)=>(
