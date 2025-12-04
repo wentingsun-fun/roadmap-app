@@ -157,10 +157,10 @@ const DEFAULT_LANES: LaneMeta[] = [
 ];
 
 const DEFAULT_STAGES: StageMeta[] = [
-  { id: "planned",      label: "Planned",       colorClass: "bg-slate-200" },
-  { id: "in-progress",  label: "In Progress",   colorClass: "bg-cyan-200" },
-  { id: "under-review", label: "Under Review",  colorClass: "bg-teal-200" },
-  { id: "completed",    label: "Completed",     colorClass: "bg-emerald-200" },
+  { id: "planned",      label: "Planned",       colorClass: "bg-slate-100" },
+  { id: "in-progress",  label: "In Progress",   colorClass: "bg-sky-100" },
+  { id: "under-review", label: "Under Review",  colorClass: "bg-amber-100" },
+  { id: "completed",    label: "Completed",     colorClass: "bg-green-100" },
 ];
 
 const thisYear = new Date().getFullYear();
@@ -1074,13 +1074,13 @@ function BarPill({ item, laneColor, colorClass, onEdit, onDelete, onResize, absS
               wordBreak: 'break-word',
               lineHeight: '1.35',
               fontSize: adjustedWidth < 35 ? '12px' : '13px',
-              fontWeight: 500,
+              fontWeight: 600,
               display: '-webkit-box',
               WebkitLineClamp: 2,
               WebkitBoxOrient: 'vertical',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
-              color: '#374151'
+              color: '#1f2937'
             }}
           >
             {item.title}
@@ -1334,9 +1334,9 @@ function LaneManager({ lanes, onAdd, onRename, onRecolor, onDelete, onReorder }:
 }
 
 function StageManager({ stages, onAdd, onRename, onRecolor, onDelete, onReorder }:{ stages: StageMeta[]; onAdd:(label:string,colorClass:string)=>void; onRename:(id:StageId,label:string)=>void; onRecolor:(id:StageId,colorClass:string)=>void; onDelete:(id:StageId)=>void; onReorder:(next:StageMeta[])=>void; }) {
-  const [label, setLabel] = useState(""); const [colorClass, setColorClass] = useState("bg-teal-200");
+  const [label, setLabel] = useState(""); const [colorClass, setColorClass] = useState("bg-sky-100");
   const move = (i:number,dir:-1|1)=>{ const j=i+dir; if(j<0||j>=stages.length) return; const copy=stages.slice(); [copy[i],copy[j]]=[copy[j],copy[i]]; onReorder(copy); };
-  const colors = ["bg-slate-200","bg-cyan-200","bg-teal-200","bg-emerald-200","bg-sky-200","bg-blue-200","bg-indigo-200","bg-rose-200","bg-amber-200","bg-slate-300","bg-cyan-300","bg-teal-300","bg-emerald-300"];
+  const colors = ["bg-slate-100","bg-gray-100","bg-sky-100","bg-cyan-100","bg-teal-100","bg-emerald-100","bg-green-100","bg-amber-100","bg-yellow-100","bg-orange-100","bg-rose-100","bg-pink-100","bg-purple-100","bg-indigo-100"];
   return (
     <div className="space-y-2 max-h-[60vh] overflow-y-auto">
       {stages.map((s,i)=>(
